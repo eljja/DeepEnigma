@@ -1,0 +1,20 @@
+/target
+.cargo/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Dynamic library extensions for Python bindings
+*.so
+*.pyd
+*.dylib
+*.dll

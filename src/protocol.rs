@@ -1,0 +1,223 @@
+//! Key Exchange Protocol module for E-TPM synchronization.
+//!
+//! Orchestrates the full Alice-Bob neural key exchange using Enhanced Tree
+//! Parity Machines. Both parties iteratively synchronize their weight vectors
+//! by exchanging outputs over a public channel until their internal states match,
+//! then a shared cryptographic key is derived via SHA-256.
+
+use pyo3::prelude::*;
+use rand::Rng;
+use sha2::{Digest, Sha256};
+use std::time::Instant;
+
+use crate::etpm::ETPM;
+
+/// Configuration parameters for the key exchange protocol.
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct KeyExchangeConfig {
+    /// Number of hidden units (K).
+    #[pyo3(get, set)]
+    pub k: usize,
+    /// Number of input neurons per hidden unit (N).
+    #[pyo3(get, set)]
+    pub n: usize,
+    /// Synaptic depth bound (L). Weights are clamped to [-L, L].
+    #[pyo3(get, set)]
+    pub l: i32,
+    /// Maximum number of synchronization rounds before giving up.
+    #[pyo3(get, set)]
+    pub max_rounds: u32,
+    /// Weight update rule name (e.g. "hebbian", "antihebbian", "randomwalk", "chaotic").
+    #[pyo3(get, set)]
+    pub update_rule: String,
+    /// Activation function type (e.g. "standard", "chaotic", "hybrid").
+    #[pyo3(get, set)]
+    pub activation_type: String,
+}
+
+#[pymethods]
+impl KeyExchangeConfig {
+    #[new]
+    #[pyo3(signature = (k, n, l, max_rounds = 10000, update_rule = "hebbian".to_string(), activation_type = "hybrid".to_string()))]
+    pub fn new(k: usize, n: usize, l: i32, max_rounds: u32, update_rule: String, activation_type: String) -> Self {
+        Self {
+            k,
+            n,
+            l,
+            max_rounds,
+            update_rule,
+            activation_type,
+        }
+    }
+}
+
+/// Result of a completed key exchange attempt.
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct KeyExchangeResult {
+    /// Whether synchronization was achieved within the round limit.
+    #[pyo3(get)]
+    pub success: bool,
+    /// Number of rounds executed.
+    #[pyo3(get)]
+    pub rounds: u32,
+    /// Derived 256-bit key as raw bytes (32 bytes). Empty if unsuccessful.
+    #[pyo3(get)]
+    pub key: Vec<u8>,
+    /// Hex-encoded representation of the derived key.
+    #[pyo3(get)]
+    pub key_hex: String,
+    /// Wall-clock synchronization time in milliseconds.
+    #[pyo3(get)]
+    pub sync_time_ms: f64,
+}
+
+#[pymethods]
+impl KeyExchangeResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "KeyExchangeResult(success={}, rounds={}, key_hex=\"{}\", sync_time_ms={:.2})",
+            self.success, self.rounds, self.key_hex, self.sync_time_ms
+        )
+    }
+}
+
+/// Manages the full E-TPM key exchange protocol between two parties (Alice and Bob).
+#[pyclass]
+pub struct KeyExchange {
+    alice: ETPM,
+    bob: ETPM,
+    config: KeyExchangeConfig,
+}
+
+#[pymethods]
+impl KeyExchange {
+    /// Creates a new key exchange instance with independently initialized Alice and Bob ETPMs.
+    #[new]
+    pub fn new(config: &KeyExchangeConfig) -> PyResult<Self> {
+        let alice = ETPM::new(config.k, config.n, config.l, &config.activation_type)?;
+        let bob = ETPM::new(config.k, config.n, config.l, &config.activation_type)?;
+
+        Ok(Self {
+            alice,
+            bob,
+            config: config.clone(),
+        })
+    }
+
+    /// Runs the full synchronization loop and returns the exchange result.
+    ///
+    /// Protocol steps per round:
+    /// 1. Generate a random input matrix of shape K×N with values in {-1, 1}.
+    /// 2. Both Alice and Bob compute their output (τ).
+    /// 3. If outputs match, both update their weights using the configured rule.
+    /// 4. Check whether all weights are identical (full synchronization).
+    /// 5. On sync, derive a 256-bit key from the shared weight vector via SHA-256.
+    pub fn run(&mut self) -> PyResult<KeyExchangeResult> {
+        let start = Instant::now();
+        let mut rng = rand::thread_rng();
+
+        for round in 1..=self.config.max_rounds {
+            // Step 1: Generate random input matrix K x N with values in {-1, 1}.
+            let inputs: Vec<Vec<i32>> = (0..self.config.k)
+                .map(|_| {
+                    (0..self.config.n)
+                        .map(|_| if rng.gen_bool(0.5) { 1 } else { -1 })
+                        .collect()
+                })
+                .collect();
+
+            // Step 2: Both compute output.
+            let tau_alice = self.alice.calculate_output(inputs.clone())?;
+            let tau_bob = self.bob.calculate_output(inputs)?;
+
+            // Step 3: Update weights only when outputs agree.
+            if tau_alice == tau_bob {
+                self.alice
+                    .update_weights(tau_alice, &self.config.update_rule)?;
+                self.bob
+                    .update_weights(tau_bob, &self.config.update_rule)?;
+
+                // Step 4: Check full weight synchronization.
+                if self.alice.weights == self.bob.weights {
+                    // Step 5: Derive key via SHA-256 of the weight vector.
+                    // In Hybrid mode, apply chaotic logistic-map transformation first.
+                    let final_weights = if self.alice.activation_type == crate::etpm::ActivationType::Hybrid {
+                        self.alice.chaotic_transform(100)
+                    } else {
+                        self.alice.weights.clone()
+                    };
+                    let key = derive_key(&final_weights);
+                    let key_hex = hex_encode(&key);
+                    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+
+                    return Ok(KeyExchangeResult {
+                        success: true,
+                        rounds: round,
+                        key,
+                        key_hex,
+                        sync_time_ms: elapsed,
+                    });
+                }
+            }
+        }
+
+        // Synchronization was not achieved within the round limit.
+        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+        Ok(KeyExchangeResult {
+            success: false,
+            rounds: self.config.max_rounds,
+            key: Vec::new(),
+            key_hex: String::new(),
+            sync_time_ms: elapsed,
+        })
+    }
+
+    /// Returns the current weight overlap ratio between Alice and Bob (0.0 to 1.0).
+    ///
+    /// An overlap of 1.0 means all weights are identical (full synchronization).
+    pub fn get_sync_progress(&self) -> f64 {
+        compute_overlap(&self.alice.weights, &self.bob.weights)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers (not exposed to Python)
+// ---------------------------------------------------------------------------
+
+/// Derives a 256-bit key by SHA-256-hashing the flattened weight vector.
+///
+/// Each weight is serialised as 4 little-endian bytes before being fed to the
+/// hasher, ensuring a deterministic and platform-independent byte representation.
+fn derive_key(weights: &[Vec<i32>]) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    for row in weights {
+        for &w in row {
+            hasher.update(w.to_le_bytes());
+        }
+    }
+    hasher.finalize().to_vec()
+}
+
+/// Hex-encodes a byte slice into a lowercase hex string.
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Computes the fraction of element-wise matching weights between two weight matrices.
+pub(crate) fn compute_overlap(w1: &[Vec<i32>], w2: &[Vec<i32>]) -> f64 {
+    if w1.is_empty() || w2.is_empty() {
+        return 0.0;
+    }
+    let total = w1.iter().map(|r| r.len()).sum::<usize>() as f64;
+    if total == 0.0 {
+        return 0.0;
+    }
+    let matching: usize = w1
+        .iter()
+        .zip(w2.iter())
+        .map(|(r1, r2)| r1.iter().zip(r2.iter()).filter(|(a, b)| a == b).count())
+        .sum();
+    matching as f64 / total
+}

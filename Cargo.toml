@@ -1,0 +1,23 @@
+[package]
+name = "deep_enigma"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "deep_enigma"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "deepenigma"
+path = "src/bin/deepenigma.rs"
+
+[dependencies]
+pyo3 = { version = "0.22" }
+rand = "0.8"
+rand_chacha = "0.3"
+sha2 = "0.10"
+hex = "0.4"
+
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
