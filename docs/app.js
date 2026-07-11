@@ -1,0 +1,412 @@
+// DeepEnigma Interactive Web Simulator & App Logic
+
+document.addEventListener('DOMContentLoaded', () => {
+    // --- LANGUAGE SWITCHER ---
+    const body = document.body;
+    const btnLang = document.getElementById('lang-toggle');
+    btnLang.addEventListener('click', () => {
+        if (body.classList.contains('lang-ko')) {
+            body.classList.remove('lang-ko');
+            body.classList.add('lang-en');
+        } else {
+            body.classList.remove('lang-en');
+            body.classList.add('lang-ko');
+        }
+    });
+
+    // --- SLIDERS ---
+    const paramK = document.getElementById('param-k');
+    const paramN = document.getElementById('param-n');
+    const paramL = document.getElementById('param-l');
+    
+    const valK = document.getElementById('val-k');
+    const valN = document.getElementById('val-n');
+    const valL = document.getElementById('val-l');
+
+    paramK.addEventListener('input', () => valK.textContent = paramK.value);
+    paramN.addEventListener('input', () => valN.textContent = paramN.value);
+    paramL.addEventListener('input', () => valL.textContent = paramL.value);
+
+    // --- CHART.JS CONFIGURATION ---
+    const ctx = document.getElementById('sync-chart').getContext('2d');
+    let syncChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Alice ↔ Bob Agreement',
+                    data: [],
+                    borderColor: '#00f2fe',
+                    backgroundColor: 'rgba(0, 242, 254, 0.05)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.1
+                },
+                {
+                    label: 'Alice ↔ Eve Agreement',
+                    data: [],
+                    borderColor: '#ff4b5c',
+                    backgroundColor: 'rgba(255, 75, 92, 0.05)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    title: { display: true, text: 'Rounds', color: '#9ca3af' },
+                    ticks: { color: '#9ca3af' }
+                },
+                y: {
+                    min: 0,
+                    max: 100,
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    title: { display: true, text: 'Agreement (%)', color: '#9ca3af' },
+                    ticks: { color: '#9ca3af' }
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#f3f4f6', font: { family: 'Outfit' } }
+                }
+            }
+        }
+    });
+
+    // --- TREE PARITY MACHINE SIMULATOR IN JS ---
+    class JSTPM {
+        constructor(k, n, l, activationType) {
+            this.k = k;
+            this.n = n;
+            this.l = l;
+            this.activationType = activationType;
+            this.weights = [];
+            this.outputs = [];
+            this.lastInput = [];
+            this.initializeWeights();
+        }
+
+        initializeWeights() {
+            this.weights = [];
+            for (let i = 0; i < this.k; i++) {
+                let row = [];
+                for (let j = 0; j < this.n; j++) {
+                    // Random weight between -L and L
+                    row.push(Math.floor(Math.random() * (2 * this.l + 1)) - this.l);
+                }
+                this.weights.push(row);
+            }
+            this.outputs = new Array(this.k).fill(0);
+        }
+
+        calculateOutput(inputs) {
+            this.lastInput = inputs;
+            let tau = 1;
+
+            for (let i = 0; i < this.k; i++) {
+                let h = 0;
+                for (let j = 0; j < this.n; j++) {
+                    h += this.weights[i][j] * inputs[i][j];
+                }
+
+                let sigma = 1;
+                if (this.activationType === 'standard' || this.activationType === 'hybrid') {
+                    sigma = h > 0 ? 1 : (h < 0 ? -1 : 1);
+                } else if (this.activationType === 'chaotic') {
+                    let freq = Math.PI / (2.0 * this.l);
+                    let val = Math.sin(h * freq);
+                    sigma = val >= 0 ? 1 : -1;
+                }
+
+                this.outputs[i] = sigma;
+                tau *= sigma;
+            }
+            return tau;
+        }
+
+        updateWeights(tau, rule) {
+            for (let i = 0; i < this.k; i++) {
+                if (this.outputs[i] === tau) {
+                    for (let j = 0; j < this.n; j++) {
+                        let w_ij = this.weights[i][j];
+                        let x_ij = this.lastInput[i][j];
+                        let new_w = w_ij;
+
+                        if (rule === 'hebbian') {
+                            new_w = w_ij + x_ij * tau;
+                        } else if (rule === 'antihebbian') {
+                            new_w = w_ij - x_ij * tau;
+                        } else if (rule === 'randomwalk') {
+                            new_w = w_ij + x_ij;
+                        }
+
+                        // Clamp weights to [-L, L]
+                        this.weights[i][j] = Math.max(-this.l, Math.min(this.l, new_w));
+                    }
+                }
+            }
+        }
+
+        chaoticTransform(iterations) {
+            let result = JSON.parse(JSON.stringify(this.weights));
+            let m = 2 * this.l;
+
+            for (let i = 0; i < this.k; i++) {
+                for (let j = 0; j < this.n; j++) {
+                    let w = this.weights[i][j];
+                    let x = w + this.l; // unsigned range [0, 2L]
+
+                    for (let round = 0; round < iterations; round++) {
+                        let half = Math.floor(m / 2);
+                        let next_x = x < half ? 2 * x : 2 * (m - x);
+                        // Bitwise diffusion step
+                        next_x = (next_x ^ i ^ j ^ round) % (m + 1);
+                        x = next_x;
+                    }
+
+                    result[i][j] = x - this.l;
+                }
+            }
+            return result;
+        }
+
+        getWeightSum() {
+            let sum = 0;
+            for (let i = 0; i < this.k; i++) {
+                for (let j = 0; j < this.n; j++) {
+                    sum += this.weights[i][j];
+                }
+            }
+            return sum;
+        }
+    }
+
+    function calculateOverlap(w1, w2) {
+        let total = w1.length * w1[0].length;
+        let matching = 0;
+        for (let i = 0; i < w1.length; i++) {
+            for (let j = 0; j < w1[0].length; j++) {
+                if (w1[i][j] === w2[i][j]) {
+                    matching++;
+                }
+            }
+        }
+        return (matching / total) * 100;
+    }
+
+    function calculateDifference(w1, w2) {
+        let diff = 0;
+        for (let i = 0; i < w1.length; i++) {
+            for (let j = 0; j < w1[0].length; j++) {
+                diff += Math.abs(w1[i][j] - w2[i][j]);
+            }
+        }
+        return diff;
+    }
+
+    // --- CRYPTO KEY GENERATOR ---
+    async function deriveSha256Key(weights) {
+        // Flatten weights into byte buffer
+        const buffer = new ArrayBuffer(weights.length * weights[0].length * 4);
+        const view = new DataView(buffer);
+        let offset = 0;
+        for (let i = 0; i < weights.length; i++) {
+            for (let j = 0; j < weights[0].length; j++) {
+                view.setInt32(offset, weights[i][j], true); // Little endian
+                offset += 4;
+            }
+        }
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+    }
+
+    // --- SIMULATOR EXECUTION CONTROLLER ---
+    let alice, bob, eve;
+    let simInterval = null;
+    let currentRound = 0;
+    
+    const btnStart = document.getElementById('btn-start');
+    const btnReset = document.getElementById('btn-reset');
+    const lblRounds = document.getElementById('lbl-rounds');
+    const lblOverlap = document.getElementById('lbl-overlap');
+    const barOverlap = document.getElementById('bar-overlap');
+    const syncStatus = document.getElementById('sync-status');
+    const keyPanel = document.getElementById('key-panel');
+    const keyOutput = document.getElementById('key-output');
+
+    const outAlice = document.getElementById('out-alice');
+    const outBob = document.getElementById('out-bob');
+    const outEve = document.getElementById('out-eve');
+    const wsumAlice = document.getElementById('wsum-alice');
+    const wsumBob = document.getElementById('wsum-bob');
+    const diffEve = document.getElementById('diff-eve');
+
+    function resetSimulation() {
+        if (simInterval) clearInterval(simInterval);
+        simInterval = null;
+        currentRound = 0;
+
+        btnStart.disabled = false;
+        btnStart.innerHTML = '<i class="fa-solid fa-play"></i> <span class="ko">동기화 시작</span><span class="en">Start Sync</span>';
+        
+        lblRounds.textContent = '0';
+        lblOverlap.textContent = '0.0%';
+        barOverlap.style.width = '0%';
+        
+        syncStatus.className = 'status-indicator';
+        syncStatus.querySelector('.ko').textContent = '대기 중';
+        syncStatus.querySelector('.en').textContent = 'Ready';
+
+        keyPanel.classList.add('hidden');
+        
+        outAlice.textContent = '-';
+        outBob.textContent = '-';
+        outEve.textContent = '-';
+        wsumAlice.textContent = '-';
+        wsumBob.textContent = '-';
+        diffEve.textContent = '-';
+
+        // Reset Chart
+        syncChart.data.labels = [];
+        syncChart.data.datasets[0].data = [];
+        syncChart.data.datasets[1].data = [];
+        syncChart.update();
+
+        // Initialize ETPM instances based on current parameters
+        const k = parseInt(paramK.value);
+        const n = parseInt(paramN.value);
+        const l = parseInt(paramL.value);
+        const act = document.getElementById('param-act').value;
+
+        alice = new JSTPM(k, n, l, act);
+        bob = new JSTPM(k, n, l, act);
+        eve = new JSTPM(k, n, l, act);
+
+        // Make sure Alice and Bob are randomized differently
+        while (calculateOverlap(alice.weights, bob.weights) > 30) {
+            alice.initializeWeights();
+            bob.initializeWeights();
+        }
+        eve.initializeWeights();
+    }
+
+    function runSimulationStep() {
+        currentRound++;
+        const k = alice.k;
+        const n = alice.n;
+        const rule = document.getElementById('param-rule').value;
+        const act = document.getElementById('param-act').value;
+
+        // 1. Generate random public input x
+        let x = [];
+        for (let i = 0; i < k; i++) {
+            let row = [];
+            for (let j = 0; j < n; j++) {
+                row.push(Math.random() >= 0.5 ? 1 : -1);
+            }
+            x.push(row);
+        }
+
+        // 2. Compute outputs
+        let tau_a = alice.calculateOutput(x);
+        let tau_b = bob.calculateOutput(x);
+        let tau_e = eve.calculateOutput(x);
+
+        // Update UI displays
+        outAlice.textContent = tau_a === 1 ? '+1' : '-1';
+        outBob.textContent = tau_b === 1 ? '+1' : '-1';
+        outEve.textContent = tau_e === 1 ? '+1' : '-1';
+
+        wsumAlice.textContent = alice.getWeightSum();
+        wsumBob.textContent = bob.getWeightSum();
+        diffEve.textContent = calculateDifference(alice.weights, eve.weights);
+
+        // 3. Update weights when Alice and Bob match
+        if (tau_a === tau_b) {
+            alice.updateWeights(tau_a, rule);
+            bob.updateWeights(tau_b, rule);
+
+            if (tau_e === tau_a) {
+                eve.updateWeights(tau_e, rule);
+            }
+        }
+
+        // Calculate agreements
+        let overlap_ab = calculateOverlap(alice.weights, bob.weights);
+        let overlap_ae = calculateOverlap(alice.weights, eve.weights);
+
+        lblRounds.textContent = currentRound;
+        lblOverlap.textContent = overlap_ab.toFixed(1) + '%';
+        barOverlap.style.width = overlap_ab + '%';
+
+        // Update Chart every 10 rounds for performance
+        if (currentRound === 1 || currentRound % 10 === 0 || overlap_ab >= 100) {
+            syncChart.data.labels.push(currentRound);
+            syncChart.data.datasets[0].data.push(overlap_ab);
+            syncChart.data.datasets[1].data.push(overlap_ae);
+            syncChart.update('none'); // Update without animation for speed
+        }
+
+        // Check if Alice and Bob are fully synchronized
+        if (overlap_ab >= 100) {
+            clearInterval(simInterval);
+            simInterval = null;
+
+            syncStatus.className = 'status-indicator synced';
+            syncStatus.querySelector('.ko').textContent = '동기화 완료';
+            syncStatus.querySelector('.en').textContent = 'Synchronized';
+            
+            btnStart.disabled = true;
+
+            // Derive key
+            const finalWeights = act === 'hybrid' ? alice.chaoticTransform(100) : alice.weights;
+            deriveSha256Key(finalWeights).then(key => {
+                keyOutput.textContent = key;
+                keyPanel.classList.remove('hidden');
+            });
+        } else if (currentRound >= 10000) {
+            // Cap at 10000 rounds
+            clearInterval(simInterval);
+            simInterval = null;
+
+            syncStatus.className = 'status-indicator';
+            syncStatus.querySelector('.ko').textContent = '라운드 초과 (실패)';
+            syncStatus.querySelector('.en').textContent = 'Failed (Limit Exceeded)';
+            btnStart.disabled = true;
+        }
+    }
+
+    btnStart.addEventListener('click', () => {
+        if (simInterval) {
+            // Pause
+            clearInterval(simInterval);
+            simInterval = null;
+            btnStart.innerHTML = '<i class="fa-solid fa-play"></i> <span class="ko">동기화 재개</span><span class="en">Resume Sync</span>';
+            syncStatus.className = 'status-indicator';
+            syncStatus.querySelector('.ko').textContent = '일시 정지';
+            syncStatus.querySelector('.en').textContent = 'Paused';
+        } else {
+            // Start
+            btnStart.innerHTML = '<i class="fa-solid fa-pause"></i> <span class="ko">시뮬레이션 일시정지</span><span class="en">Pause Simulation</span>';
+            syncStatus.className = 'status-indicator running';
+            syncStatus.querySelector('.ko').textContent = '동기화 중...';
+            syncStatus.querySelector('.en').textContent = 'Synchronizing...';
+            simInterval = setInterval(runSimulationStep, 20); // Faster simulation (20ms per round)
+        }
+    });
+
+    btnReset.addEventListener('click', resetSimulation);
+
+    // Initial Reset to setup ETPMs
+    resetSimulation();
+});

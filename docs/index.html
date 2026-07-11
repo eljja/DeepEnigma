@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepEnigma — Neural Network Cryptographic Key Exchange</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="lang-ko"> <!-- Defaults to Korean, can toggle to English -->
+
+    <!-- BACKGROUND GLOWS -->
+    <div class="glow-bg glow-1"></div>
+    <div class="glow-bg glow-2"></div>
+
+    <!-- HEADER / NAVIGATION -->
+    <header>
+        <div class="header-container">
+            <a href="#" class="logo">
+                <span class="brain-icon"><i class="fa-solid fa-brain"></i></span>
+                <span class="logo-text">Deep<span>Enigma</span></span>
+            </a>
+            <div class="header-actions">
+                <!-- Language Toggle -->
+                <button id="lang-toggle" class="btn-lang">
+                    <span class="lang-text-en">KO <i class="fa-solid fa-globe"></i></span>
+                    <span class="lang-text-ko">EN <i class="fa-solid fa-globe"></i></span>
+                </button>
+                <a href="https://github.com/eljja/DeepEnigma" target="_blank" class="btn-github-link">
+                    <i class="fa-brands fa-github"></i> <span class="ko">저장소</span><span class="en">GitHub</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- HERO SECTION -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-badge animate-fade">
+                <span class="ko">🧠 차세대 신경망 기반 대칭키 교환 체계</span>
+                <span class="en">🧠 Next-Gen Neural Symmetric Key Exchange</span>
+            </div>
+            <h1 class="hero-title">
+                <span class="ko">암호학의 새로운 패러다임,<br><span class="gradient-text">양자 내성 신경망 암호</span></span>
+                <span class="en">The Next Paradigm of Cryptography,<br><span class="gradient-text">Neural Network Cryptography</span></span>
+            </h1>
+            <p class="hero-subtitle">
+                <span class="ko">이진 Parity Machine 동기화를 넘어선 고성능 카오스 적응형 보안 모델. NPU 가속 지원으로 모바일 및 IoT 환경에 최적화된 Zero-Knowledge 상호 인증 기반 키 교환 라이브러리입니다.</span>
+                <span class="en">A high-performance chaotic adaptive security model exceeding binary Parity Machine synchronization. Lightweight zero-knowledge authenticated key exchange library optimized for mobile and IoT via NPU acceleration.</span>
+            </p>
+            <div class="hero-buttons">
+                <a href="#simulator" class="btn-primary">
+                    <i class="fa-solid fa-circle-play"></i> <span class="ko">시뮬레이터 시작</span><span class="en">Launch Simulator</span>
+                </a>
+                <a href="https://github.com/eljja/DeepEnigma" target="_blank" class="btn-secondary">
+                    <i class="fa-solid fa-code"></i> <span class="ko">소스코드 보기</span><span class="en">Explore Codebase</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- INTERACTIVE SIMULATOR SECTION -->
+    <section id="simulator" class="simulator-section">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="ko">실시간 동기화 시뮬레이터</span>
+                    <span class="en">Real-Time Sync Simulator</span>
+                </h2>
+                <p class="section-desc">
+                    <span class="ko">Alice와 Bob이 무작위 공개 입력에 반응하여 서로의 은닉 가중치를 동기화하는 과정을 시각적으로 확인해 보세요. 도청자 Eve는 동일한 트래픽을 도청해도 동기화에 도달하지 못합니다.</span>
+                    <span class="en">Watch Alice and Bob synchronize their hidden weights in real-time by responding to public inputs. Eavesdropper Eve fails to synchronize despite capturing identical traffic.</span>
+                </p>
+            </div>
+
+            <!-- SIMULATOR CONTROL & VIEWER -->
+            <div class="sim-grid">
+                <!-- Controls Panel -->
+                <div class="glass-card sim-controls">
+                    <h3>
+                        <i class="fa-solid fa-sliders"></i> <span class="ko">파라미터 조절</span><span class="en">Configuration</span>
+                    </h3>
+                    <div class="control-group">
+                        <label for="param-k">
+                            <span>K (은닉 뉴런 수 / Hidden Units)</span>
+                            <span class="val" id="val-k">3</span>
+                        </label>
+                        <input type="range" id="param-k" min="2" max="6" value="3" step="1">
+                        <p class="param-info">
+                            <span class="ko">은닉 뉴런 개수가 증가할수록 공격 복잡도가 지수적으로 커집니다.</span>
+                            <span class="en">Higher K exponentially increases cryptographic complexity.</span>
+                        </p>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="param-n">
+                            <span>N (입력 크기 / Inputs per Unit)</span>
+                            <span class="val" id="val-n">64</span>
+                        </label>
+                        <input type="range" id="param-n" min="16" max="128" value="64" step="8">
+                        <p class="param-info">
+                            <span class="ko">입력 크기는 가중치 차원 공간의 총 크기를 결정합니다.</span>
+                            <span class="en">N defines the total dimension of the weight space.</span>
+                        </p>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="param-l">
+                            <span>L (시냅틱 깊이 / Synaptic Depth)</span>
+                            <span class="val" id="val-l">6</span>
+                        </label>
+                        <input type="range" id="param-l" min="2" max="12" value="6" step="1">
+                        <p class="param-info">
+                            <span class="ko">가중치 허용 범위 [-L, L]로, 클수록 기하학적 공격 방어가 쉽습니다.</span>
+                            <span class="en">Weight range bound [-L, L] mitigating geometric attacks.</span>
+                        </p>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="param-rule">
+                            <span class="ko">학습 업데이트 규칙</span><span class="en">Update Rule</span>
+                        </label>
+                        <select id="param-rule">
+                            <option value="hebbian">Hebbian (Recommended)</option>
+                            <option value="antihebbian">Anti-Hebbian</option>
+                            <option value="randomwalk">Random Walk</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="param-act">
+                            <span class="ko">활성화 함수 모드</span><span class="en">Activation Mode</span>
+                        </label>
+                        <select id="param-act">
+                            <option value="hybrid">Hybrid (Sign-Sync + Chaotic Key)</option>
+                            <option value="standard">Standard (Pure Sign)</option>
+                        </select>
+                    </div>
+
+                    <div class="sim-buttons">
+                        <button id="btn-start" class="btn-start">
+                            <i class="fa-solid fa-play"></i> <span class="ko">동기화 시작</span><span class="en">Start Sync</span>
+                        </button>
+                        <button id="btn-reset" class="btn-reset">
+                            <i class="fa-solid fa-rotate-right"></i> <span class="ko">초기화</span><span class="en">Reset</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Simulation Visualizer -->
+                <div class="glass-card sim-visualizer">
+                    <div class="vis-header">
+                        <div class="status-indicator" id="sync-status">
+                            <span class="indicator-dot"></span>
+                            <span class="status-text ko">대기 중</span>
+                            <span class="status-text en">Ready</span>
+                        </div>
+                        <div class="round-counter">
+                            <span class="ko">라운드: </span><span class="en">Round: </span><span id="lbl-rounds">0</span>
+                        </div>
+                    </div>
+
+                    <div class="visualizer-content">
+                        <!-- Overlap Progress Bar -->
+                        <div class="overlap-container">
+                            <div class="overlap-header">
+                                <span class="ko">가중치 일치도 (Alice ↔ Bob)</span>
+                                <span class="en">Weight Alignment (Alice ↔ Bob)</span>
+                                <span class="overlap-val" id="lbl-overlap">0.0%</span>
+                            </div>
+                            <div class="progress-track">
+                                <div class="progress-bar" id="bar-overlap" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Real-time weight difference graphs -->
+                        <div class="graph-container">
+                            <canvas id="sync-chart" width="400" height="150"></canvas>
+                        </div>
+
+                        <!-- Participants Comparison -->
+                        <div class="parties-container">
+                            <div class="party-box alice-box">
+                                <div class="party-title"><i class="fa-solid fa-user-shield"></i> Alice</div>
+                                <div class="party-details">
+                                    <div><span class="ko">출력 τ_A:</span><span class="en">Output τ_A:</span> <span id="out-alice">-</span></div>
+                                    <div><span class="ko">가중치 합:</span><span class="en">Weight Sum:</span> <span id="wsum-alice">-</span></div>
+                                </div>
+                            </div>
+                            <div class="party-box bob-box">
+                                <div class="party-title"><i class="fa-solid fa-user-shield"></i> Bob</div>
+                                <div class="party-details">
+                                    <div><span class="ko">출력 τ_B:</span><span class="en">Output τ_B:</span> <span id="out-bob">-</span></div>
+                                    <div><span class="ko">가중치 합:</span><span class="en">Weight Sum:</span> <span id="wsum-bob">-</span></div>
+                                </div>
+                            </div>
+                            <div class="party-box eve-box">
+                                <div class="party-title"><i class="fa-solid fa-user-ninja"></i> Eve (Eavesdropper)</div>
+                                <div class="party-details">
+                                    <div><span class="ko">출력 τ_E:</span><span class="en">Output τ_E:</span> <span id="out-eve">-</span></div>
+                                    <div><span class="ko">가중치 괴리:</span><span class="en">Weight Diff:</span> <span id="diff-eve">-</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Derived Key Panel -->
+                    <div class="key-panel hidden" id="key-panel">
+                        <div class="key-header">
+                            <span class="ko"><i class="fa-solid fa-key"></i> 동기화 완료: 256비트 대칭키 도출</span>
+                            <span class="en"><i class="fa-solid fa-key"></i> Sync Complete: 256-bit Symmetric Key Derived</span>
+                        </div>
+                        <div class="key-output" id="key-output">
+                            ----------------- Key Generating -----------------
+                        </div>
+                        <div class="key-note">
+                            <span class="ko">※ Hybrid 모드 활성화로, 동기화된 정수 가중치에 물리적 결정성 카오스 텐트 맵(Chaotic Tent Map) 100회 연산을 적용한 후 SHA-256 해시를 수행했습니다. (플랫폼 무관 동일 키 보장)</span>
+                            <span class="en">* In Hybrid mode, the derived key is the SHA-256 hash of the synchronized weights passed through 100 iterations of a platform-independent integer chaotic Tent Map.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CORE STRATEGY & ARCHITECTURE -->
+    <section class="strategy-section">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="ko">핵심 기술적 설계 및 방어 전략</span>
+                    <span class="en">Core Architectural Advancements</span>
+                </h2>
+                <p class="section-desc">
+                    <span class="ko">기존 이진 트리 패리티 머신(TPM)의 수학적 취약점을 보완하고 크로스 플랫폼 호환성을 확보하기 위한 세 가지 중점 혁신입니다.</span>
+                    <span class="en">Three strategic design iterations that eliminate mathematical vulnerabilities of traditional TPMs and guarantee cross-platform compatibility.</span>
+                </p>
+            </div>
+
+            <div class="features-grid">
+                <!-- Feature Card 1 -->
+                <div class="glass-card feature-card">
+                    <div class="feature-icon"><i class="fa-solid fa-shuffle"></i></div>
+                    <h3>
+                        <span class="ko">하이브리드 활성화 모드 (Hybrid Activation)</span>
+                        <span class="en">Hybrid Activation Mode</span>
+                    </h3>
+                    <p class="ko">
+                        순수 카오스 비선형 활성화 함수(Sine 등)는 학습 방향성을 깨뜨려 수렴을 방해합니다. DeepEnigma는 <strong>동기화 시점엔 이진 부호 함수(Sign)를 사용하여 빠른 수렴</strong>을 유도하고, <strong>키 도출 시점에 비선형 카오스 맵을 거쳐 키를 경화(Hardening)</strong>하는 하이브리드 설계를 도입했습니다.
+                    </p>
+                    <p class="en">
+                        Pure chaotic activation functions break monotonic gradients and disrupt convergence. DeepEnigma resolves this by using <strong>stable sign activation for synchronization</strong>, then applying <strong>non-linear chaotic mappings for key-hardening</strong> only during the final derivation phase.
+                    </p>
+                </div>
+
+                <!-- Feature Card 2 -->
+                <div class="glass-card feature-card">
+                    <div class="feature-icon"><i class="fa-solid fa-fingerprint"></i></div>
+                    <h3>
+                        <span class="ko">정수 기반 카오스 텐트 맵 (Integer Tent Map)</span>
+                        <span class="en">Integer-Only Chaotic Tent Map</span>
+                    </h3>
+                    <p class="ko">
+                        ARM(모바일/임베디드)과 x86(서버/PC) 등 이기종 하드웨어 간 부동 소수점(float) 연산 정밀도 미세 차이는 카오스 계에서 나비효과를 일으켜 키 불일치를 만듭니다. 우리는 <strong>100% 정수 연산만으로 작동하는 결정성 텐트 맵(Integer Tent Map)</strong>을 개발해 플랫폼 무관 비트 단위 일치를 보장합니다.
+                    </p>
+                    <p class="en">
+                        Floating-point precision differences between architectures (e.g. ARM vs x86) cause chaotic values to diverge. We utilize an <strong>integer-only deterministic chaotic Tent Map</strong>, guaranteeing bit-for-bit key identity across disparate physical devices.
+                    </p>
+                </div>
+
+                <!-- Feature Card 3 -->
+                <div class="glass-card feature-card">
+                    <div class="feature-icon"><i class="fa-solid fa-lock"></i></div>
+                    <h3>
+                        <span class="ko">ZKP 상호 인증 (ZKP Mutual Authentication)</span>
+                        <span class="en">Zero-Knowledge Mutual Authentication</span>
+                    </h3>
+                    <p class="ko">
+                        기존 신경망 키 교환은 도청자 공격(Eve)엔 강하지만 중간자 공격(MitM)엔 무방비했습니다. 동기화 전 단계에 <strong>Fiat-Shamir 휴리스틱 기반의 해시 해밀턴식 영지식 증명(ZKP)</strong> 프로토콜을 탑재하여 비밀 공유 값을 노출하지 않고 상대방의 신원을 검증함으로써 MitM을 사전 차단합니다.
+                    </p>
+                    <p class="en">
+                        Traditional neural cryptography is vulnerable to Man-in-the-Middle (MitM) attacks. We integrate a <strong>lightweight hash-based Zero-Knowledge challenge-response</strong> protocol prior to weight synchronization, validating identity without leaking secrets.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- BENCHMARKS & ATTACK ANALYSIS -->
+    <section class="performance-section">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="ko">성능 벤치마크 및 보안성 프로파일</span>
+                    <span class="en">Performance & Security Benchmarks</span>
+                </h2>
+                <p class="section-desc">
+                    <span class="ko">고전 암호(RSA) 및 미국 국립표준기술연구소(NIST) 선정 양자 내성 암호 표준(ML-KEM)과 DeepEnigma E-TPM의 특징 비교 및 실측 성능 데이터입니다.</span>
+                    <span class="en">Comparative profiles and real benchmark throughput metrics of DeepEnigma E-TPM against RSA and post-quantum standard ML-KEM.</span>
+                </p>
+            </div>
+
+            <!-- Comparison Table -->
+            <div class="glass-card table-card">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th><span class="ko">지표</span><span class="en">Metric</span></th>
+                                <th>RSA-4096 (Classical)</th>
+                                <th>ML-KEM-1024 (PQC)</th>
+                                <th class="highlight-col">DeepEnigma E-TPM (Hybrid)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong><span class="ko">양자 위협 내성</span><span class="en">Quantum Resistant</span></strong></td>
+                                <td>❌ <span class="ko">취약 (쇼어 알고리즘)</span><span class="en">Vulnerable (Shor's)</span></td>
+                                <td>✅ <span class="ko">내성 보유</span><span class="en">Resistant</span></td>
+                                <td class="highlight-col">✅ <span class="ko">내성 보유 (비아벨 구조)</span><span class="en">Resistant (Non-Abelian)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong><span class="ko">보안의 수학적 근거</span><span class="en">Math Foundation</span></strong></td>
+                                <td><span class="ko">소인수분해 문제</span><span class="en">Integer Factorization</span></td>
+                                <td>격자 암호 (Module-LWE)</td>
+                                <td class="highlight-col"><span class="ko">카오스 동역학 수렴 & 역산불가</span><span class="en">Chaos Dynamics & NP-Hard Sync</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong><span class="ko">네이티브 가속 가용성</span><span class="en">NPU Acceleration</span></strong></td>
+                                <td>❌ <span class="ko">불가</span><span class="en">No</span></td>
+                                <td>❌ <span class="ko">불가</span><span class="en">No</span></td>
+                                <td class="highlight-col">✅ <span class="ko">지원 (NPU 행렬 가속 활용)</span><span class="en">Yes (Direct NPU Acceleration)</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong><span class="ko">보안 강도 대비 키 크기</span><span class="en">Key Overhead</span></strong></td>
+                                <td>512 Bytes</td>
+                                <td>1,568 Bytes</td>
+                                <td class="highlight-col"><strong>&lt; 100 Bytes</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong><span class="ko">통신 왕복 수 (RTT)</span><span class="en">Protocol RTT</span></strong></td>
+                                <td>1 RTT</td>
+                                <td>1 RTT</td>
+                                <td class="highlight-col">~500 - 4000 Rounds (RTT)</td>
+                            </tr>
+                            <tr>
+                                <td><strong><span class="ko">실측 핵심 연산 처리량</span><span class="en">Throughput (Ops/sec)</span></strong></td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td class="highlight-col"><strong>output: 114k+ / update: 207k+</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Threat Mitigation Summary -->
+            <div class="threat-grid">
+                <div class="glass-card threat-card-item">
+                    <h4><i class="fa-solid fa-shield-virus"></i> <span class="ko">공격 시나리오 대응 결과</span><span class="en">Cryptanalysis Defense Profiles</span></h4>
+                    <ul>
+                        <li>
+                            <strong><span class="ko">수동적 도청 (Passive Eavesdropping)</span><span class="en">Passive Eavesdropping</span></strong>
+                            <p class="ko">성공률 0.00%. Eve는 통신 내용을 바꾸거나 피드백 루프에 개입할 수 없으므로 가중치가 동기화되지 못하고 난수로 남아 있습니다.</p>
+                            <p class="en">0% Success. Eve cannot intervene or participate in the mutual feedback loop, resulting in her weights staying as random integers.</p>
+                        </li>
+                        <li>
+                            <strong><span class="ko">기하학적 분석 공격 (Geometric Attack)</span><span class="en">Geometric Attack</span></strong>
+                            <p class="ko">성공률 0.00%. 가장 모호한 은닉 유닛의 출력을 반전하는 최적화 추적 공격조차, 시냅틱 깊이(L)와 가중치 경화 기법에 의해 차단됩니다.</p>
+                            <p class="en">0% Success. Tracking algorithms analyzing boundary gradients are mitigated by scale-up of L and post-sync integer mapping.</p>
+                        </li>
+                        <li>
+                            <strong><span class="ko">유전 알고리즘 공격 (Genetic Attack)</span><span class="en">Genetic Algorithm Attack</span></strong>
+                            <p class="ko">성공률 0.00%. 스파이 TPM 군집을 진화시켜 다수결로 동기화를 유도하는 유전적 교배 시도는 가중치 공간의 차원($K \times N$) 장벽에 부딪혀 수렴 전 시간 제한에 도달합니다.</p>
+                            <p class="en">0% Success. Evolutionary agent attacks attempting crossover/mutation are bottlenecked by the high-dimensional weight space ($K \times N$).</p>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2026 DeepEnigma Project. Developed in Rust & Python. Licensed under MIT.</p>
+                <div class="footer-links">
+                    <a href="https://github.com/eljja/DeepEnigma" target="_blank"><i class="fa-brands fa-github"></i> Source Code</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ChartJS for Simulator Graph -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom JavaScript -->
+    <script src="app.js"></script>
+</body>
+</html>
