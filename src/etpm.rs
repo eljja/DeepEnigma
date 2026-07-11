@@ -278,34 +278,42 @@ impl ETPM {
         self.outputs.clone()
     }
 
-    /// Applies a chaotic logistic-map transformation to the weight matrix.
+    /// Applies a chaotic integer-only Tent Map transformation to the weight matrix.
     ///
     /// This is used in Hybrid mode after synchronization to harden the key
-    /// before SHA-256 derivation. The transformation applies r=3.99 logistic map
-    /// iterations seeded by normalised weight values, creating a non-linear,
-    /// one-way mapping that makes weight recovery computationally infeasible.
+    /// before SHA-256 derivation. Using integer-only arithmetic guarantees that
+    /// the key exchange is 100% deterministic and yields identical keys on all
+    /// CPU architectures (e.g. x86, ARM, RISC-V), preventing float-discrepancies.
     ///
     /// Returns the chaotically-transformed weight matrix without modifying
     /// the original ETPM state.
     pub fn chaotic_transform(&self, iterations: u32) -> Vec<Vec<i32>> {
         let mut result = self.weights.clone();
-        let r = 3.99_f64; // Logistic map parameter (fully chaotic regime)
+        let m = (2 * self.l) as i64;
 
         for i in 0..self.k {
             for j in 0..self.n {
-                // Normalise weight to (0, 1) as logistic map seed
                 let w = self.weights[i][j];
-                let mut x = (w as f64 + self.l as f64 + 0.5) / (2.0 * self.l as f64 + 1.0);
-                x = x.clamp(0.001, 0.999); // Avoid fixed points at 0 and 1
+                // Shift to unsigned range [0, 2L]
+                let mut x = (w + self.l) as i64;
 
-                // Iterate the logistic map: x_{n+1} = r * x_n * (1 - x_n)
-                for _ in 0..iterations {
-                    x = r * x * (1.0 - x);
+                for round in 0..iterations {
+                    // Integer chaotic Tent map:
+                    // x_{n+1} = 2*x_n if x_n < M/2 else 2*(M - x_n)
+                    let half = m / 2;
+                    let mut next_x = if x < half {
+                        2 * x
+                    } else {
+                        2 * (m - x)
+                    };
+
+                    // Apply coordinate and round-based non-linear mixing/diffusion
+                    next_x = (next_x ^ (i as i64) ^ (j as i64) ^ (round as i64)) % (m + 1);
+                    x = next_x;
                 }
 
-                // Map back to integer weight range [-L, L]
-                let transformed = ((x * (2.0 * self.l as f64 + 1.0)) - self.l as f64).round() as i32;
-                result[i][j] = transformed.clamp(-self.l, self.l);
+                // Shift back to signed range [-L, L]
+                result[i][j] = (x - self.l as i64) as i32;
             }
         }
         result

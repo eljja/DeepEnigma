@@ -1,4 +1,4 @@
-use deep_enigma::{ETPM, ActivationType};
+use deep_enigma::{ETPM, ActivationType, ZKPProver, ZKPVerifier};
 
 #[test]
 fn test_etpm_creation() {
@@ -121,4 +121,38 @@ fn test_input_validation() {
     // Invalid input values (not -1 or 1)
     let inputs_bad_val = vec![vec![1, 0, 1], vec![1, 1, -1]];
     assert!(etpm.calculate_output(inputs_bad_val).is_err());
+}
+
+#[test]
+fn test_zkp_authentication() {
+    let psk = b"supersecretpsk".to_vec();
+    let mut prover = ZKPProver::new(psk.clone());
+    let mut verifier = ZKPVerifier::new(psk);
+
+    // Alice (Prover) creates commitment
+    let commitment = prover.create_commitment();
+    assert_eq!(commitment.len(), 32);
+
+    // Bob (Verifier) receives commitment and creates challenge
+    verifier.receive_commitment(commitment);
+    let challenge = verifier.create_challenge();
+    assert_eq!(challenge.len(), 32);
+
+    // Alice responds to challenge
+    let response = prover.respond(challenge);
+    assert_eq!(response.len(), 32);
+
+    // Bob verifies Alice's proof
+    let nonce = prover.get_nonce();
+    let success = verifier.verify(nonce, response);
+    assert!(success);
+
+    // Verify with incorrect PSK fails
+    let bad_verifier = ZKPVerifier::new(b"wrongpsk".to_vec());
+    let mut bad_verifier = bad_verifier;
+    bad_verifier.receive_commitment(prover.create_commitment());
+    let challenge = bad_verifier.create_challenge();
+    let response = prover.respond(challenge);
+    let success = bad_verifier.verify(prover.get_nonce(), response);
+    assert!(!success);
 }

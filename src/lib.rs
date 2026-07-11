@@ -1,8 +1,10 @@
+pub mod auth;
 pub mod benchmark;
 pub mod etpm;
 pub mod protocol;
 pub mod security;
 
+pub use auth::{ZKPProver, ZKPVerifier};
 pub use benchmark::{Benchmark, BenchmarkResult};
 pub use etpm::{ActivationType, UpdateRule, ETPM};
 pub use protocol::{KeyExchange, KeyExchangeConfig, KeyExchangeResult};
@@ -27,5 +29,8 @@ fn deep_enigma(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Benchmarking
     m.add_class::<BenchmarkResult>()?;
     m.add_class::<Benchmark>()?;
+    // ZKP Authentication
+    m.add_class::<ZKPProver>()?;
+    m.add_class::<ZKPVerifier>()?;
     Ok(())
 }

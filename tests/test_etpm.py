@@ -95,3 +95,29 @@ def test_key_exchange_synchronization():
             break
             
     assert synced, f"Failed to sync in {max_rounds} rounds"
+
+def test_zkp_authentication_py():
+    psk = b"anothersecretpassword"
+    prover = deep_enigma.ZKPProver(psk)
+    verifier = deep_enigma.ZKPVerifier(psk)
+
+    commitment = prover.create_commitment()
+    assert len(commitment) == 32
+
+    verifier.receive_commitment(commitment)
+    challenge = verifier.create_challenge()
+    assert len(challenge) == 32
+
+    response = prover.respond(challenge)
+    assert len(response) == 32
+
+    nonce = prover.get_nonce()
+    success = verifier.verify(nonce, response)
+    assert success
+
+    bad_verifier = deep_enigma.ZKPVerifier(b"wrongpassword")
+    bad_verifier.receive_commitment(prover.create_commitment())
+    challenge = bad_verifier.create_challenge()
+    response = prover.respond(challenge)
+    success = bad_verifier.verify(prover.get_nonce(), response)
+    assert not success
