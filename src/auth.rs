@@ -59,7 +59,7 @@ impl ZKPProver {
     /// The commitment includes a monotonically-increasing session counter to
     /// prevent replay attacks: `C = SHA256(nonce || counter_bytes)`.
     pub fn create_commitment(&mut self) -> Vec<u8> {
-        let mut rng = rand::thread_rng();
+        let mut rng = crate::rng::secure_rng();
         let mut r = vec![0u8; 32];
         rng.fill(&mut r[..]);
         self.nonce = r;
@@ -137,7 +137,7 @@ impl ZKPVerifier {
 
     /// Generates and returns a random 32-byte verification challenge.
     pub fn create_challenge(&mut self) -> Vec<u8> {
-        let mut rng = rand::thread_rng();
+        let mut rng = crate::rng::secure_rng();
         let mut c = vec![0u8; 32];
         rng.fill(&mut c[..]);
         self.challenge = c;

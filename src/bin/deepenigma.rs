@@ -86,7 +86,7 @@ fn parse_args() -> Args {
 
 /// Generates a random K×N input matrix with values in {-1, 1}.
 fn random_inputs(k: usize, n: usize) -> Vec<Vec<i32>> {
-    let mut rng = thread_rng();
+    let mut rng = deep_enigma::secure_rng();
     (0..k)
         .map(|_| {
             (0..n)

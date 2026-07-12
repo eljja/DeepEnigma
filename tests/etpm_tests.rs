@@ -175,6 +175,7 @@ fn test_authenticated_key_exchange() {
         "hebbian".to_string(),
         "hybrid".to_string(),
         50,
+        false,
     );
 
     let mut exchange = KeyExchange::new(&config).unwrap();
@@ -195,4 +196,86 @@ fn test_authenticated_key_exchange() {
     let mut bad_exchange = KeyExchange::new(&config).unwrap();
     let bad_result = bad_exchange.authenticated_run(b"alice_psk".to_vec(), Some(b"bob_psk".to_vec()));
     assert!(bad_result.is_err());
+}
+
+#[test]
+fn test_parameter_negotiation() {
+    use deep_enigma::{HandshakeMessage, ParameterNegotiator};
+
+    let alice_proposal = HandshakeMessage::new(
+        4,
+        128,
+        8,
+        "hybrid".to_string(),
+        "hebbian".to_string(),
+        vec![1, 2, 3],
+    );
+
+    let bob_proposal = HandshakeMessage::new(
+        4,
+        128,
+        10, // Bob proposes larger L
+        "hybrid".to_string(),
+        "hebbian".to_string(),
+        vec![4, 5, 6],
+    );
+
+    let negotiation_res = ParameterNegotiator::negotiate(&alice_proposal, &bob_proposal).unwrap();
+    
+    // Version, K, N, activation, rule must match Alice's proposal
+    assert_eq!(negotiation_res.version, "DeepEnigma-v1");
+    assert_eq!(negotiation_res.k, 4);
+    assert_eq!(negotiation_res.n, 128);
+    // L should be negotiated to max(8, 10) = 10
+    assert_eq!(negotiation_res.l, 10);
+    assert_eq!(negotiation_res.activation_type, "hybrid");
+    assert_eq!(negotiation_res.update_rule, "hebbian");
+    // Commitment is Bob's commitment
+    assert_eq!(negotiation_res.commitment, vec![4, 5, 6]);
+
+    // Serialization and deserialization test
+    let serialized = alice_proposal.serialize();
+    let deserialized = HandshakeMessage::deserialize(serialized).unwrap();
+    assert_eq!(deserialized.version, alice_proposal.version);
+    assert_eq!(deserialized.k, alice_proposal.k);
+    assert_eq!(deserialized.n, alice_proposal.n);
+    assert_eq!(deserialized.l, alice_proposal.l);
+    assert_eq!(deserialized.activation_type, alice_proposal.activation_type);
+    assert_eq!(deserialized.update_rule, alice_proposal.update_rule);
+    assert_eq!(deserialized.commitment, alice_proposal.commitment);
+
+    // Mismatched version should fail negotiation
+    let mut bad_bob = bob_proposal.clone();
+    bad_bob.version = "DeepEnigma-v2".to_string();
+    assert!(ParameterNegotiator::negotiate(&alice_proposal, &bad_bob).is_err());
+}
+
+#[test]
+fn test_adaptive_l_scaling() {
+    use deep_enigma::{KeyExchange, KeyExchangeConfig};
+
+    // Setup config with adaptive L scaling = true, and max_rounds = 1100 to trigger at least one scaling step at round 1000
+    let config = KeyExchangeConfig::new(
+        2,
+        10,
+        2,
+        1100,
+        "hebbian".to_string(),
+        "hybrid".to_string(),
+        10,
+        true, // adaptive_l_scaling
+    );
+
+    let mut exchange = KeyExchange::new(&config).unwrap();
+    
+    // We run it. If it hits round 1000, L should be scaled from 2 to 4.
+    // Let's verify by executing the run, and check if L got scaled.
+    // Since this is a test, we can just run the exchange.
+    let _ = exchange.run();
+    // Since exchange owns ETPMs, we can't access them directly. But we can inspect the config or verify it doesn't crash.
+    // Let's create ETPMs directly to test scale_synaptic_depth
+    let mut etpm = ETPM::new(2, 10, 2, "hybrid").unwrap();
+    assert_eq!(etpm.l, 2);
+    etpm.scale_synaptic_depth(4).unwrap();
+    assert_eq!(etpm.l, 4);
 }

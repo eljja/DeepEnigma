@@ -130,7 +130,7 @@ impl ETPM {
     pub fn initialize_weights(&mut self, seed: Option<u64>) -> PyResult<()> {
         let mut rng: Box<dyn RngCore> = match seed {
             Some(s) => Box::new(ChaCha8Rng::seed_from_u64(s)),
-            None => Box::new(thread_rng()),
+            None => Box::new(crate::rng::secure_rng()),
         };
 
         for i in 0..self.k {

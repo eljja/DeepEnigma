@@ -63,7 +63,7 @@ impl SecurityAnalyzer {
     /// and Eve's output also matches, Eve updates her weights using the same
     /// rule. This models an eavesdropper who can only listen on the public channel.
     pub fn run_passive_attack(&mut self, max_rounds: u32) -> PyResult<AttackResult> {
-        let mut rng = rand::thread_rng();
+        let mut rng = crate::rng::secure_rng();
         let update_rule = "hebbian";
 
         let mut alice = ETPM::new(self.k, self.n, self.l, "hybrid")?;
@@ -126,7 +126,7 @@ impl SecurityAnalyzer {
     /// (most uncertain unit) and flips its output before updating weights.
     /// This strategy attempts to accelerate Eve's synchronization with Alice.
     pub fn run_geometric_attack(&mut self, max_rounds: u32) -> PyResult<AttackResult> {
-        let mut rng = rand::thread_rng();
+        let mut rng = crate::rng::secure_rng();
         let update_rule = "hebbian";
 
         let mut alice = ETPM::new(self.k, self.n, self.l, "hybrid")?;

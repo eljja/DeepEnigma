@@ -40,12 +40,15 @@ pub struct KeyExchangeConfig {
     /// Number of chaotic transform iterations for key hardening (Hybrid mode).
     #[pyo3(get, set)]
     pub chaotic_iterations: u32,
+    /// Automatically scale up L dynamically during long synchronization.
+    #[pyo3(get, set)]
+    pub adaptive_l_scaling: bool,
 }
 
 #[pymethods]
 impl KeyExchangeConfig {
     #[new]
-    #[pyo3(signature = (k, n, l, max_rounds = 10000, update_rule = "hebbian".to_string(), activation_type = "hybrid".to_string(), chaotic_iterations = 100))]
+    #[pyo3(signature = (k, n, l, max_rounds = 10000, update_rule = "hebbian".to_string(), activation_type = "hybrid".to_string(), chaotic_iterations = 100, adaptive_l_scaling = false))]
     pub fn new(
         k: usize,
         n: usize,
@@ -54,6 +57,7 @@ impl KeyExchangeConfig {
         update_rule: String,
         activation_type: String,
         chaotic_iterations: u32,
+        adaptive_l_scaling: bool,
     ) -> Self {
         Self {
             k,
@@ -63,6 +67,7 @@ impl KeyExchangeConfig {
             update_rule,
             activation_type,
             chaotic_iterations,
+            adaptive_l_scaling,
         }
     }
 }
@@ -180,12 +185,21 @@ impl KeyExchange {
     /// Internal synchronization loop shared by `run()` and `authenticated_run()`.
     fn run_sync(&mut self, authenticated: bool) -> PyResult<KeyExchangeResult> {
         let start = Instant::now();
-        let mut rng = rand::thread_rng();
+        let mut rng = crate::rng::secure_rng();
 
         // Collect first-round public input hash as HKDF salt for domain separation
         let mut salt_data: Vec<u8> = Vec::new();
 
         for round in 1..=self.config.max_rounds {
+            // Adaptive L scaling trigger:
+            // Every 1000 rounds, if sync is not complete, scale up L to expand the weight boundary.
+            if self.config.adaptive_l_scaling && round > 1 && round % 1000 == 0 {
+                let current_l = self.alice.l;
+                let new_l = current_l + 2;
+                self.alice.scale_synaptic_depth(new_l)?;
+                self.bob.scale_synaptic_depth(new_l)?;
+            }
+
             // Step 1: Generate random input matrix K x N with values in {-1, 1}.
             let inputs: Vec<Vec<i32>> = (0..self.config.k)
                 .map(|_| {

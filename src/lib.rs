@@ -2,14 +2,18 @@ pub mod auth;
 pub mod benchmark;
 pub mod constant_time;
 pub mod etpm;
+pub mod handshake;
 pub mod protocol;
+pub mod rng;
 pub mod security;
 
 pub use auth::{ZKPProver, ZKPVerifier};
 pub use benchmark::{Benchmark, BenchmarkResult};
 pub use constant_time::{ct_eq, ct_mask_i32, ct_select_i32};
 pub use etpm::{ActivationType, UpdateRule, ETPM};
+pub use handshake::{HandshakeMessage, ParameterNegotiator};
 pub use protocol::{KeyExchange, KeyExchangeConfig, KeyExchangeResult};
+pub use rng::{secure_rng, SecureRng};
 pub use security::{AttackResult, SecurityAnalyzer};
 
 use pyo3::prelude::*;
@@ -25,6 +29,9 @@ fn deep_enigma(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<KeyExchangeConfig>()?;
     m.add_class::<KeyExchangeResult>()?;
     m.add_class::<KeyExchange>()?;
+    // Handshake
+    m.add_class::<HandshakeMessage>()?;
+    m.add_class::<ParameterNegotiator>()?;
     // Security analysis
     m.add_class::<AttackResult>()?;
     m.add_class::<SecurityAnalyzer>()?;
