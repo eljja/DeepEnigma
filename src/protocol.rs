@@ -6,6 +6,8 @@
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 use rand::Rng;
+#[cfg(feature = "std")]
+use std::time::Instant;
 use sha2::Sha256;
 use hkdf::Hkdf;
 use zeroize::Zeroize;
@@ -263,7 +265,8 @@ impl KeyExchange {
 
     /// Orchestrates a standard unauthenticated key exchange synchronization.
     pub fn run(&mut self) -> ProtocolResult<KeyExchangeResult> {
-        let start_time = crate::rng::secure_rng().gen::<f64>(); // Mock elapsed start
+        #[cfg(feature = "std")]
+        let start_time = Instant::now();
         let mut rounds = 0;
         let mut rng = crate::rng::secure_rng();
 
@@ -346,12 +349,15 @@ impl KeyExchange {
             // Sync successful when Alice and Bob weight matrices match exactly
             if self.alice.weights == self.bob.weights {
                 let final_key = self.derive_key(salt)?;
-                let end_time = crate::rng::secure_rng().gen::<f64>(); // Mock elapsed end
+                #[cfg(feature = "std")]
+                let sync_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                #[cfg(not(feature = "std"))]
+                let sync_time_ms = 0.0;
                 return Ok(KeyExchangeResult {
                     success: true,
                     rounds,
                     key_hex: hex::encode(final_key),
-                    sync_time_ms: (end_time - start_time).abs() * 100.0,
+                    sync_time_ms,
                 });
             }
         }

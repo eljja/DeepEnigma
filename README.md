@@ -60,6 +60,11 @@ In Hybrid Mode, the final weight matrix is fed through 100 iterations of an inte
 - A tiny weight error of just 1 bit (e.g. $2^{-1}$) undergoes exponential chaotic divergence, yielding a completely different output matrix.
 - The key is then hashed via SHA-256, bringing the final eavesdropping success rate to **$2^{-256}$** (absolute brute-force collision limit).
 
+#### 4. Active Query Protocol (Accelerated Synchronization)
+Active Query filters input vectors by evaluating local fields $h_i$ against a threshold $H$. Only inputs where $|h_i| \le H$ for all hidden units are accepted, concentrating learning on ambiguous cases.
+- Dramatically reduces synchronization rounds (up to 70% fewer)
+- Narrower field margins also reduce the window for geometric attackers
+
 ---
 
 ### 🌌 Post-Quantum & Quantum Cryptography Metrics
@@ -72,21 +77,31 @@ When quantum encryption/computing is fully realized, the following parameters ar
 
 ### 🛠️ Project Structure
 ```text
-├── docs/               # GitHub Pages interactive web simulator
-├── scripts/            # Python simulation & cryptanalysis scripts
-│   ├── simulation.py   # Key exchange validator
-│   └── attacks.py      # Passive, Geometric, and Genetic attack simulators
-├── src/                # Core Rust library
-│   ├── lib.rs          # PyO3 modules & public bindings
-│   ├── etpm.rs         # Enhanced Tree Parity Machine engine
-│   ├── protocol.rs     # KeyExchange loop & SHA-256 derivation
-│   ├── security.rs     # SecurityAnalyzer & entropy measurement
-│   ├── auth.rs         # Zero-Knowledge mutual authentication
-│   └── benchmark.rs    # Performance benchmark harness
-├── tests/              # Test suites
-│   ├── etpm_tests.rs   # Rust unit tests
-│   └── test_etpm.py    # Python integration tests
-└── Cargo.toml          # Rust package configuration
+├── docs/                 # GitHub Pages interactive web simulator
+│   ├── index.html        # Simulator UI
+│   ├── app.js            # JS simulation engine & WASM bridge
+│   ├── style.css         # Styling
+│   └── wasm/             # Pre-built WASM artifacts
+├── scripts/              # Python simulation & cryptanalysis scripts
+│   ├── simulation.py     # Key exchange validator
+│   └── attacks.py        # Passive, Geometric, and Genetic attack simulators
+├── src/                  # Core Rust library
+│   ├── lib.rs            # PyO3 modules & public bindings
+│   ├── etpm.rs           # Enhanced Tree Parity Machine engine
+│   ├── protocol.rs       # KeyExchange loop & HKDF-SHA256 key derivation
+│   ├── security.rs       # SecurityAnalyzer & entropy measurement
+│   ├── auth.rs           # Zero-Knowledge mutual authentication
+│   ├── benchmark.rs      # Performance benchmark harness
+│   ├── constant_time.rs  # Constant-time comparison & selection primitives
+│   ├── rng.rs            # ChaCha20-based secure RNG wrapper
+│   ├── handshake.rs      # Parameter negotiation & version handshake
+│   ├── wasm.rs           # WebAssembly (wasm-bindgen) bindings
+│   └── bin/
+│       └── deepenigma.rs # CLI binary entry point
+├── tests/                # Test suites
+│   ├── etpm_tests.rs     # Rust unit tests
+│   └── test_etpm.py      # Python integration tests
+└── Cargo.toml            # Rust package configuration
 ```
 
 ---

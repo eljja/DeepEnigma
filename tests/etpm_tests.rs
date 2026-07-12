@@ -247,12 +247,12 @@ fn test_parameter_negotiation() {
 fn test_adaptive_l_scaling() {
     use deep_enigma::{KeyExchange, KeyExchangeConfig};
 
-    // Setup config with adaptive L scaling = true, and max_rounds = 1100 to trigger at least one scaling step at round 1000
+    // Setup config with adaptive L scaling = true, and max_rounds = 3100 to trigger at least one scaling step at round 3000
     let config = KeyExchangeConfig::new(
         2,
         10,
         2,
-        1100,
+        3100,
         "hebbian".to_string(),
         "hybrid".to_string(),
         10,
@@ -261,7 +261,7 @@ fn test_adaptive_l_scaling() {
 
     let mut exchange = KeyExchange::new(&config).unwrap();
     
-    // We run it. If it hits round 1000, L should be scaled from 2 to 4.
+    // We run it. If it hits round 3000, L should be scaled from 2 to 4.
     // Let's verify by executing the run, and check if L got scaled.
     // Since this is a test, we can just run the exchange.
     let _ = exchange.run();

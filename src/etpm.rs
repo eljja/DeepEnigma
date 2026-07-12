@@ -7,7 +7,7 @@
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 use rand::prelude::*;
-use rand_chacha::ChaCha8Rng;
+use rand_chacha::ChaCha20Rng;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
@@ -105,10 +105,14 @@ pub struct ETPM {
     pub activation_type: ActivationType,
 }
 
-/// Securely wipe E-TPM weights from memory when dropped.
+/// Securely wipe all E-TPM state from memory when dropped.
 impl Drop for ETPM {
     fn drop(&mut self) {
         for row in &mut self.weights {
+            row.zeroize();
+        }
+        self.outputs.zeroize();
+        for row in &mut self.last_input {
             row.zeroize();
         }
     }
@@ -151,10 +155,10 @@ impl ETPM {
         Ok(etpm)
     }
 
-    /// Initializes or randomizes weights. If a seed is provided, a deterministic RNG (ChaCha8) is used.
+    /// Initializes or randomizes weights. If a seed is provided, a deterministic RNG (ChaCha20) is used.
     pub fn initialize_weights(&mut self, seed: Option<u64>) -> ETPMResult<()> {
         let mut rng: Box<dyn RngCore> = match seed {
-            Some(s) => Box::new(ChaCha8Rng::seed_from_u64(s)),
+            Some(s) => Box::new(ChaCha20Rng::seed_from_u64(s)),
             None => Box::new(crate::rng::secure_rng()),
         };
 

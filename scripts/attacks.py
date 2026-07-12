@@ -136,7 +136,7 @@ class GeneticAttacker:
                 best_diff = diff
         return best_diff
 
-def benchmark_attacks(k=4, n=128, l=8, activation_type="chaotic", update_rule="chaotic", max_rounds=2000):
+def benchmark_attacks(k=4, n=128, l=8, activation_type="hybrid", update_rule="hebbian", max_rounds=2000):
     if not deep_enigma:
         print("Maturin extension not loaded.")
         return

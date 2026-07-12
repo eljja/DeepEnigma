@@ -30,7 +30,7 @@ def calculate_weight_difference(w1, w2):
             diff += abs(w1[i][j] - w2[i][j])
     return diff
 
-def run_key_exchange(k=4, n=256, l=16, activation_type="chaotic", update_rule="chaotic", max_rounds=5000):
+def run_key_exchange(k=4, n=256, l=16, activation_type="hybrid", update_rule="hebbian", max_rounds=5000):
     if not deep_enigma:
         print("Cannot run simulation: deep_enigma module is not imported.")
         return

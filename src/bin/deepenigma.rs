@@ -105,7 +105,7 @@ fn derive_key(weights: &[Vec<i32>]) -> String {
         }
     }
     let hk = Hkdf::<Sha256>::new(None, &ikm);
-    let info = b"DeepEnigma-v1-session-key";
+    let info = b"DeepEnigma-Symmetric-Key";
     let mut okm = vec![0u8; 32];
     hk.expand(info, &mut okm).expect("HKDF expand failed");
     ikm.zeroize();

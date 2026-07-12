@@ -38,6 +38,7 @@ pub fn ct_select_i32(condition: bool, a: i32, b: i32) -> i32 {
 /// Constant-time conditional mask: returns `value` if `condition` is true,
 /// otherwise 0.
 #[inline]
+#[allow(dead_code)]
 pub fn ct_mask_i32(condition: bool, value: i32) -> i32 {
     let mask = -(condition as i32);
     mask & value

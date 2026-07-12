@@ -55,7 +55,6 @@ dependencies = [
  "getrandom",
  "hex",
  "hkdf",
- "hmac",
  "pyo3",
  "rand",
  "rand_chacha",

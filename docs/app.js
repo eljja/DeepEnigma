@@ -41,9 +41,11 @@ class JSTPM {
             if (this.activationType === 'standard' || this.activationType === 'hybrid') {
                 sigma = h > 0 ? 1 : (h < 0 ? -1 : 1);
             } else if (this.activationType === 'chaotic') {
-                let freq = Math.PI / (2.0 * this.l);
-                let val = Math.sin(h * freq);
-                sigma = val >= 0 ? 1 : -1;
+                // Integer modulo approximation of sign(sin(πh/2L)) — matches Rust exactly
+                let two_l = 2 * this.l;
+                // rem_euclid equivalent for JS: ((h % (2*two_l)) + (2*two_l)) % (2*two_l)
+                let h_mod = ((h % (2 * two_l)) + (2 * two_l)) % (2 * two_l);
+                sigma = h_mod < two_l ? 1 : -1;
             }
 
             this.outputs[i] = sigma;
@@ -89,22 +91,31 @@ class JSTPM {
 
     chaoticTransform(iterations) {
         let result = JSON.parse(JSON.stringify(this.weights));
-        let m = 2 * this.l;
+        let m = BigInt(2 * this.l);
+        const MASK64 = (1n << 64n) - 1n;
 
         for (let i = 0; i < this.k; i++) {
             for (let j = 0; j < this.n; j++) {
                 let w = this.weights[i][j];
-                let x = w + this.l; // unsigned range [0, 2L]
+                let x = BigInt(w + this.l); // unsigned range [0, 2L]
 
                 for (let round = 0; round < iterations; round++) {
-                    let half = Math.floor(m / 2);
-                    let next_x = x < half ? 2 * x : 2 * (m - x);
-                    // Bitwise diffusion step
-                    next_x = (next_x ^ i ^ j ^ round) % (m + 1);
-                    x = next_x;
+                    let half = m / 2n;
+                    let next_tent = x < half ? 2n * x : 2n * (m - x);
+
+                    // SipHash-inspired non-linear mixing (matches Rust exactly)
+                    let mix_key = ((BigInt(i) * 0x517cc1b727220a95n) & MASK64)
+                        ^ ((BigInt(j) * 0x6c62272e07bb0142n) & MASK64)
+                        ^ ((BigInt(round) * 0x9e3779b97f4a7c15n) & MASK64);
+                    let mixed = (next_tent + mix_key) & MASK64;
+                    mixed = mixed ^ (mixed >> 17n);
+                    mixed = (mixed * 0xbf58476d1ce4e5b9n) & MASK64;
+                    mixed = mixed ^ (mixed >> 31n);
+
+                    x = mixed % (m + 1n);
                 }
 
-                result[i][j] = x - this.l;
+                result[i][j] = Number(x) - this.l;
             }
         }
         return result;
@@ -345,6 +356,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- CRYPTO KEY GENERATOR ---
+    // NOTE: This JS demo uses plain SHA-256 for key derivation.
+    // The Rust library uses HKDF-SHA256 with salt and info="DeepEnigma-Symmetric-Key",
+    // which produces a different (stronger) key from the same weights.
+    // WASM mode delegates to Rust's HKDF and is authoritative.
     async function deriveSha256Key(weights) {
         // Flatten weights into byte buffer
         const buffer = new ArrayBuffer(weights.length * weights[0].length * 4);
