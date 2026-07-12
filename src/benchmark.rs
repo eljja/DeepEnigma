@@ -1,36 +1,38 @@
 //! Performance benchmarking module for E-TPM operations.
 //!
-//! Provides tools to measure the throughput and latency of core E-TPM
-//! operations such as `calculate_output`, `update_weights`, and full
-//! synchronization rounds across different parameter configurations.
+//! Provides tools to measure the throughput and latency of E-TPM operations.
 
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
-use rand::prelude::*;
 use std::time::Instant;
+use rand::Rng;
 
 use crate::etpm::ETPM;
 
+/// Result type alias supporting both PyO3 and pure Rust environments.
+#[cfg(feature = "extension-module")]
+type BenchmarkResultType<T> = PyResult<T>;
+
+#[cfg(not(feature = "extension-module"))]
+type BenchmarkResultType<T> = Result<T, &'static str>;
+
 /// Result of a single benchmark run.
-#[pyclass]
+#[cfg_attr(feature = "extension-module", pyclass)]
 #[derive(Clone, Debug)]
 pub struct BenchmarkResult {
     /// Name of the benchmarked operation.
-    #[pyo3(get)]
     pub operation: String,
     /// Number of iterations executed.
-    #[pyo3(get)]
     pub iterations: u32,
     /// Total wall-clock time in milliseconds.
-    #[pyo3(get)]
     pub total_time_ms: f64,
     /// Average time per operation in microseconds.
-    #[pyo3(get)]
     pub avg_time_us: f64,
     /// Throughput in operations per second.
-    #[pyo3(get)]
     pub ops_per_sec: f64,
 }
 
+#[cfg(feature = "extension-module")]
 #[pymethods]
 impl BenchmarkResult {
     fn __repr__(&self) -> String {
@@ -38,6 +40,31 @@ impl BenchmarkResult {
             "BenchmarkResult(operation='{}', iterations={}, total_time_ms={:.2}, avg_time_us={:.2}, ops_per_sec={:.0})",
             self.operation, self.iterations, self.total_time_ms, self.avg_time_us, self.ops_per_sec
         )
+    }
+
+    #[getter]
+    pub fn operation(&self) -> String {
+        self.operation.clone()
+    }
+
+    #[getter]
+    pub fn iterations(&self) -> u32 {
+        self.iterations
+    }
+
+    #[getter]
+    pub fn total_time_ms(&self) -> f64 {
+        self.total_time_ms
+    }
+
+    #[getter]
+    pub fn avg_time_us(&self) -> f64 {
+        self.avg_time_us
+    }
+
+    #[getter]
+    pub fn ops_per_sec(&self) -> f64 {
+        self.ops_per_sec
     }
 }
 
@@ -77,10 +104,7 @@ fn make_result(operation: &str, iterations: u32, elapsed: std::time::Duration) -
 }
 
 /// Benchmark harness for E-TPM operations.
-///
-/// Create an instance with the desired `K`, `N`, `L` parameters and then
-/// call the individual `bench_*` methods to collect timing data.
-#[pyclass]
+#[cfg_attr(feature = "extension-module", pyclass)]
 pub struct Benchmark {
     etpm: ETPM,
     k: usize,
@@ -88,18 +112,15 @@ pub struct Benchmark {
     l: i32,
 }
 
-#[pymethods]
 impl Benchmark {
     /// Creates a new benchmark harness with an E-TPM of the given dimensions.
-    #[new]
-    pub fn new(k: usize, n: usize, l: i32) -> PyResult<Self> {
+    pub fn new(k: usize, n: usize, l: i32) -> BenchmarkResultType<Self> {
         let etpm = ETPM::new(k, n, l, "hybrid")?;
         Ok(Self { etpm, k, n, l })
     }
 
     /// Benchmarks [`ETPM::calculate_output`] over `iterations` calls.
-    pub fn bench_calculate_output(&mut self, iterations: u32) -> PyResult<BenchmarkResult> {
-        // Pre-generate all input matrices to exclude generation cost from timing.
+    pub fn bench_calculate_output(&mut self, iterations: u32) -> BenchmarkResultType<BenchmarkResult> {
         let inputs: Vec<Vec<Vec<i32>>> = (0..iterations)
             .map(|_| random_inputs(self.k, self.n))
             .collect();
@@ -114,19 +135,15 @@ impl Benchmark {
     }
 
     /// Benchmarks [`ETPM::update_weights`] over `iterations` calls.
-    ///
-    /// Each iteration first computes an output (to set internal state) and
-    /// then measures the weight update.
-    pub fn bench_update_weights(&mut self, iterations: u32) -> PyResult<BenchmarkResult> {
+    pub fn bench_update_weights(&mut self, iterations: u32) -> BenchmarkResultType<BenchmarkResult> {
         let inputs: Vec<Vec<Vec<i32>>> = (0..iterations)
             .map(|_| random_inputs(self.k, self.n))
             .collect();
 
-        // Compute outputs first so that last_input / outputs are populated.
         let taus: Vec<i32> = inputs
             .iter()
             .map(|inp| self.etpm.calculate_output(inp.clone()))
-            .collect::<PyResult<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         let start = Instant::now();
         for &tau in &taus {
@@ -139,10 +156,7 @@ impl Benchmark {
 
     /// Runs `trials` independent full-synchronization attempts between two
     /// freshly-created E-TPMs, returning per-trial statistics.
-    ///
-    /// Each trial runs until the two machines' weights match or a cap of
-    /// 10 000 rounds is reached.
-    pub fn bench_full_sync(&mut self, trials: u32) -> PyResult<Vec<BenchmarkResult>> {
+    pub fn bench_full_sync(&mut self, trials: u32) -> BenchmarkResultType<Vec<BenchmarkResult>> {
         const MAX_ROUNDS: u32 = 10_000;
         let mut results = Vec::with_capacity(trials as usize);
 
@@ -186,7 +200,7 @@ impl Benchmark {
     pub fn compare_parameters(
         &self,
         params: Vec<(usize, usize, i32)>,
-    ) -> PyResult<Vec<BenchmarkResult>> {
+    ) -> BenchmarkResultType<Vec<BenchmarkResult>> {
         const MAX_ROUNDS: u32 = 10_000;
         let mut results = Vec::with_capacity(params.len());
 
@@ -223,5 +237,38 @@ impl Benchmark {
         }
 
         Ok(results)
+    }
+}
+
+// Python bindings for Benchmark
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl Benchmark {
+    #[new]
+    pub fn py_new(k: usize, n: usize, l: i32) -> BenchmarkResultType<Self> {
+        Self::new(k, n, l)
+    }
+
+    #[pyo3(name = "bench_calculate_output")]
+    pub fn py_bench_calculate_output(&mut self, iterations: u32) -> BenchmarkResultType<BenchmarkResult> {
+        self.bench_calculate_output(iterations)
+    }
+
+    #[pyo3(name = "bench_update_weights")]
+    pub fn py_bench_update_weights(&mut self, iterations: u32) -> BenchmarkResultType<BenchmarkResult> {
+        self.bench_update_weights(iterations)
+    }
+
+    #[pyo3(name = "bench_full_sync")]
+    pub fn py_bench_full_sync(&mut self, trials: u32) -> BenchmarkResultType<Vec<BenchmarkResult>> {
+        self.bench_full_sync(trials)
+    }
+
+    #[pyo3(name = "compare_parameters")]
+    pub fn py_compare_parameters(
+        &self,
+        params: Vec<(usize, usize, i32)>,
+    ) -> BenchmarkResultType<Vec<BenchmarkResult>> {
+        self.compare_parameters(params)
     }
 }

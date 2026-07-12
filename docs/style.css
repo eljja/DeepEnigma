@@ -434,6 +434,31 @@ header {
     font-weight: 600;
 }
 
+.engine-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+    font-family: var(--font-space);
+}
+
+.engine-badge.wasm {
+    background: rgba(0, 242, 254, 0.15);
+    border: 1px solid rgba(0, 242, 254, 0.4);
+    color: #00f2fe;
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+}
+
+.engine-badge.js {
+    background: rgba(255, 184, 0, 0.15);
+    border: 1px solid rgba(255, 184, 0, 0.4);
+    color: #ffb800;
+    box-shadow: 0 0 10px rgba(255, 184, 0, 0.2);
+}
+
 /* OVERLAP PROGRESS */
 .overlap-container {
     margin-bottom: 24px;

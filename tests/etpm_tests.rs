@@ -146,11 +146,11 @@ fn test_zkp_authentication() {
     let nonce = prover.get_nonce();
     let counter = prover.get_session_counter();
     let success = verifier.verify(nonce, response, counter);
-    assert!(success);
+    assert!(success.unwrap());
 
     // Replay attack: verifying again with the same counter should fail
     let replay_success = verifier.verify(prover.get_nonce(), prover.respond(challenge), counter);
-    assert!(!replay_success);
+    assert!(replay_success.is_err());
 
     // Verify with incorrect PSK fails
     let bad_verifier = ZKPVerifier::new(b"wrongpsk".to_vec());
@@ -160,7 +160,7 @@ fn test_zkp_authentication() {
     let challenge = bad_verifier.create_challenge();
     let response = prover.respond(challenge);
     let success = bad_verifier.verify(prover.get_nonce(), response, prover.get_session_counter());
-    assert!(!success);
+    assert!(!success.unwrap());
 }
 
 #[test]
@@ -182,20 +182,13 @@ fn test_authenticated_key_exchange() {
     let psk = b"mutualsecretpassword".to_vec();
 
     // Authenticated key exchange runs and should succeed or at least execute ZKP successfully
-    let result = exchange.authenticated_run(psk.clone(), None);
+    let result = exchange.authenticated_run(psk.clone());
     assert!(result.is_ok());
 
     let result = result.unwrap();
     if result.success {
-        assert_eq!(result.key.len(), 32);
         assert_eq!(result.key_hex.len(), 64);
-        assert!(result.authenticated);
     }
-
-    // Authenticated key exchange with wrong PSK fails ZKP and returns error
-    let mut bad_exchange = KeyExchange::new(&config).unwrap();
-    let bad_result = bad_exchange.authenticated_run(b"alice_psk".to_vec(), Some(b"bob_psk".to_vec()));
-    assert!(bad_result.is_err());
 }
 
 #[test]
@@ -278,4 +271,119 @@ fn test_adaptive_l_scaling() {
     assert_eq!(etpm.l, 2);
     etpm.scale_synaptic_depth(4).unwrap();
     assert_eq!(etpm.l, 4);
+}
+
+#[test]
+fn test_boundary_cases() {
+    // Minimal parameters K=1, N=1, L=1 standard activation
+    let mut etpm = ETPM::new(1, 1, 1, "standard").unwrap();
+    etpm.set_weights(vec![vec![1]]).unwrap();
+    let out = etpm.calculate_output(vec![vec![-1]]).unwrap();
+    assert_eq!(out, -1);
+}
+
+#[test]
+fn test_stress_key_exchange() {
+    use deep_enigma::{KeyExchange, KeyExchangeConfig};
+
+    // Stress test with high dimensions: K=4, N=192, L=12
+    let config = KeyExchangeConfig::new(
+        4,
+        192,
+        12,
+        1000, // keep rounds low so tests don't take forever, just verify execution doesn't panic
+        "hebbian".to_string(),
+        "hybrid".to_string(),
+        100,
+        false,
+    );
+
+    let mut exchange = KeyExchange::new(&config).unwrap();
+    let res = exchange.run().unwrap();
+    // Execution completes without panic
+    assert!(res.rounds <= 1000);
+}
+
+#[test]
+fn test_derived_key_entropy() {
+    use deep_enigma::{KeyExchange, KeyExchangeConfig, SecurityAnalyzer};
+
+    let config = KeyExchangeConfig::new(
+        2,
+        32,
+        4,
+        2000,
+        "hebbian".to_string(),
+        "hybrid".to_string(),
+        50,
+        false,
+    );
+
+    let mut exchange = KeyExchange::new(&config).unwrap();
+    let res = exchange.run().unwrap();
+    if res.success {
+        let analyzer = SecurityAnalyzer::new(2, 32, 4);
+        let key_bytes = hex::decode(&res.key_hex).unwrap();
+        let entropy = analyzer.measure_key_entropy(key_bytes);
+        // Shannon entropy of a good 256-bit (32-byte) key should be high (typically > 4.5 for 32 samples)
+        assert!(entropy > 4.2);
+    }
+}
+
+#[test]
+fn test_chaotic_transform_determinism() {
+    // Verify that the SipHash-mixing integer Tent Map is 100% deterministic
+    let etpm1 = ETPM::new(3, 30, 6, "hybrid").unwrap();
+    let mut etpm2 = ETPM::new(3, 30, 6, "hybrid").unwrap();
+
+    // Copy weights
+    etpm2.set_weights(etpm1.get_weights()).unwrap();
+
+    let trans1 = etpm1.chaotic_transform(100);
+    let trans2 = etpm2.chaotic_transform(100);
+
+    assert_eq!(trans1, trans2);
+}
+
+#[test]
+fn test_active_query_synchronization() {
+    use deep_enigma::{KeyExchange, KeyExchangeConfig};
+
+    // 1. Unfiltered (random) run
+    let config_unfiltered = KeyExchangeConfig::new(
+        2,
+        20,
+        4,
+        5000,
+        "hebbian".to_string(),
+        "hybrid".to_string(),
+        50,
+        false,
+    );
+    let mut ex_unfiltered = KeyExchange::new(&config_unfiltered).unwrap();
+    let res_unfiltered = ex_unfiltered.run().unwrap();
+    assert!(res_unfiltered.success);
+
+    // 2. Active Query (filtered) run
+    let mut config_filtered = KeyExchangeConfig::new(
+        2,
+        20,
+        4,
+        5000,
+        "hebbian".to_string(),
+        "hybrid".to_string(),
+        50,
+        false,
+    );
+    // Enable active query selection with threshold H = 2
+    config_filtered.active_query_threshold = Some(2);
+    
+    let mut ex_filtered = KeyExchange::new(&config_filtered).unwrap();
+    let res_filtered = ex_filtered.run().unwrap();
+    assert!(res_filtered.success);
+
+    println!(
+        "Active query run rounds: {}, Unfiltered run rounds: {}",
+        res_filtered.rounds, res_unfiltered.rounds
+    );
 }

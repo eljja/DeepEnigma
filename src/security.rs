@@ -4,33 +4,50 @@
 //! information-theoretic metrics (Shannon entropy, weight overlap) to evaluate
 //! the resilience of the neural key exchange protocol.
 
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 use rand::Rng;
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 use crate::etpm::ETPM;
 use crate::protocol::compute_overlap;
 
+/// Result type alias supporting both PyO3 and pure Rust environments.
+#[cfg(feature = "extension-module")]
+type SecurityResult<T> = PyResult<T>;
+
+#[cfg(not(feature = "extension-module"))]
+type SecurityResult<T> = Result<T, &'static str>;
+
+
+
 /// Result of a simulated attack against the key exchange protocol.
-#[pyclass]
+#[cfg_attr(feature = "extension-module", pyclass)]
 #[derive(Clone, Debug)]
 pub struct AttackResult {
     /// Name of the attack strategy used.
-    #[pyo3(get)]
     pub attack_type: String,
     /// Whether the attacker achieved full synchronization with one of the parties.
-    #[pyo3(get)]
     pub success: bool,
     /// Number of rounds the attack ran.
-    #[pyo3(get)]
     pub rounds: u32,
     /// Final weight overlap between the attacker and Alice (0.0 to 1.0).
-    #[pyo3(get)]
     pub final_overlap: f64,
     /// Sum of absolute element-wise weight differences between attacker and Alice.
-    #[pyo3(get)]
     pub weight_difference: i64,
 }
 
+#[cfg(feature = "extension-module")]
 #[pymethods]
 impl AttackResult {
     fn __repr__(&self) -> String {
@@ -39,30 +56,48 @@ impl AttackResult {
             self.attack_type, self.success, self.rounds, self.final_overlap, self.weight_difference
         )
     }
+
+    #[getter]
+    pub fn attack_type(&self) -> String {
+        self.attack_type.clone()
+    }
+
+    #[getter]
+    pub fn success(&self) -> bool {
+        self.success
+    }
+
+    #[getter]
+    pub fn rounds(&self) -> u32 {
+        self.rounds
+    }
+
+    #[getter]
+    pub fn final_overlap(&self) -> f64 {
+        self.final_overlap
+    }
+
+    #[getter]
+    pub fn weight_difference(&self) -> i64 {
+        self.weight_difference
+    }
 }
 
 /// Provides security analysis tools for evaluating E-TPM key exchange resilience.
-#[pyclass]
+#[cfg_attr(feature = "extension-module", pyclass)]
 pub struct SecurityAnalyzer {
     k: usize,
     n: usize,
     l: i32,
 }
 
-#[pymethods]
 impl SecurityAnalyzer {
-    #[new]
     pub fn new(k: usize, n: usize, l: i32) -> Self {
         Self { k, n, l }
     }
 
     /// Simulates a **passive eavesdropper** attack.
-    ///
-    /// The attacker (Eve) maintains her own E-TPM and observes the public inputs
-    /// and outputs of Alice and Bob. Whenever Alice and Bob agree (τ_A == τ_B)
-    /// and Eve's output also matches, Eve updates her weights using the same
-    /// rule. This models an eavesdropper who can only listen on the public channel.
-    pub fn run_passive_attack(&mut self, max_rounds: u32) -> PyResult<AttackResult> {
+    pub fn run_passive_attack(&mut self, max_rounds: u32) -> SecurityResult<AttackResult> {
         let mut rng = crate::rng::secure_rng();
         let update_rule = "hebbian";
 
@@ -120,12 +155,7 @@ impl SecurityAnalyzer {
     }
 
     /// Simulates a **geometric attack**.
-    ///
-    /// This is a stronger attack where Eve, after observing matching outputs,
-    /// identifies the hidden unit with the smallest absolute local field |h_i|
-    /// (most uncertain unit) and flips its output before updating weights.
-    /// This strategy attempts to accelerate Eve's synchronization with Alice.
-    pub fn run_geometric_attack(&mut self, max_rounds: u32) -> PyResult<AttackResult> {
+    pub fn run_geometric_attack(&mut self, max_rounds: u32) -> SecurityResult<AttackResult> {
         let mut rng = crate::rng::secure_rng();
         let update_rule = "hebbian";
 
@@ -208,24 +238,49 @@ impl SecurityAnalyzer {
     }
 
     /// Measures the Shannon entropy of a key byte sequence.
-    ///
-    /// Returns entropy in bits per byte (maximum 8.0 for a uniformly random key).
-    /// Higher values indicate better key quality.
     pub fn measure_key_entropy(&self, key: Vec<u8>) -> f64 {
         shannon_entropy(&key)
     }
 
     /// Computes the fraction of element-wise matching weights between two weight matrices.
-    ///
-    /// Returns a value in [0.0, 1.0] where 1.0 means all weights are identical.
-    #[staticmethod]
     pub fn compute_weight_overlap(w1: Vec<Vec<i32>>, w2: Vec<Vec<i32>>) -> f64 {
         compute_overlap(&w1, &w2)
     }
 }
 
+// Python bindings for SecurityAnalyzer
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl SecurityAnalyzer {
+    #[new]
+    pub fn py_new(k: usize, n: usize, l: i32) -> Self {
+        Self::new(k, n, l)
+    }
+
+    #[pyo3(name = "run_passive_attack")]
+    pub fn py_run_passive_attack(&mut self, max_rounds: u32) -> SecurityResult<AttackResult> {
+        self.run_passive_attack(max_rounds)
+    }
+
+    #[pyo3(name = "run_geometric_attack")]
+    pub fn py_run_geometric_attack(&mut self, max_rounds: u32) -> SecurityResult<AttackResult> {
+        self.run_geometric_attack(max_rounds)
+    }
+
+    #[pyo3(name = "measure_key_entropy")]
+    pub fn py_measure_key_entropy(&self, key: Vec<u8>) -> f64 {
+        self.measure_key_entropy(key)
+    }
+
+    #[pyo3(name = "compute_weight_overlap")]
+    #[staticmethod]
+    pub fn py_compute_weight_overlap(w1: Vec<Vec<i32>>, w2: Vec<Vec<i32>>) -> f64 {
+        Self::compute_weight_overlap(w1, w2)
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Internal helpers (not exposed to Python)
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 /// Sum of absolute element-wise weight differences.
@@ -249,12 +304,25 @@ fn shannon_entropy(data: &[u8]) -> f64 {
     }
 
     let len = data.len() as f64;
+    
+    // Custom log2 implementation for no_std
+    let log2_fn = |x: f64| -> f64 {
+        #[cfg(feature = "std")]
+        {
+            x.log2()
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            0.0
+        }
+    };
+
     counts
         .iter()
         .filter(|&&c| c > 0)
         .map(|&c| {
             let p = c as f64 / len;
-            -p * p.log2()
+            -p * log2_fn(p)
         })
         .sum()
 }

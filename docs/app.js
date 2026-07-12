@@ -1,4 +1,231 @@
 // DeepEnigma Interactive Web Simulator & App Logic
+import init, { WasmETPM } from './wasm/deep_enigma.js';
+
+// --- TREE PARITY MACHINE SIMULATOR IN JS (FALLBACK) ---
+class JSTPM {
+    constructor(k, n, l, activationType) {
+        this.k = k;
+        this.n = n;
+        this.l = l;
+        this.activationType = activationType;
+        this.weights = [];
+        this.outputs = [];
+        this.lastInput = [];
+        this.initializeWeights();
+    }
+
+    initializeWeights() {
+        this.weights = [];
+        for (let i = 0; i < this.k; i++) {
+            let row = [];
+            for (let j = 0; j < this.n; j++) {
+                // Random weight between -L and L
+                row.push(Math.floor(Math.random() * (2 * this.l + 1)) - this.l);
+            }
+            this.weights.push(row);
+        }
+        this.outputs = new Array(this.k).fill(0);
+    }
+
+    calculateOutput(inputs) {
+        this.lastInput = inputs;
+        let tau = 1;
+
+        for (let i = 0; i < this.k; i++) {
+            let h = 0;
+            for (let j = 0; j < this.n; j++) {
+                h += this.weights[i][j] * inputs[i][j];
+            }
+
+            let sigma = 1;
+            if (this.activationType === 'standard' || this.activationType === 'hybrid') {
+                sigma = h > 0 ? 1 : (h < 0 ? -1 : 1);
+            } else if (this.activationType === 'chaotic') {
+                let freq = Math.PI / (2.0 * this.l);
+                let val = Math.sin(h * freq);
+                sigma = val >= 0 ? 1 : -1;
+            }
+
+            this.outputs[i] = sigma;
+            tau *= sigma;
+        }
+        return tau;
+    }
+
+    calculateLocalFields(inputs) {
+        let fields = [];
+        for (let i = 0; i < this.k; i++) {
+            let sum = 0;
+            for (let j = 0; j < this.n; j++) {
+                sum += this.weights[i][j] * inputs[i][j];
+            }
+            fields.push(sum);
+        }
+        return fields;
+    }
+
+    updateWeights(tau, rule) {
+        for (let i = 0; i < this.k; i++) {
+            if (this.outputs[i] === tau) {
+                for (let j = 0; j < this.n; j++) {
+                    let w_ij = this.weights[i][j];
+                    let x_ij = this.lastInput[i][j];
+                    let new_w = w_ij;
+
+                    if (rule === 'hebbian') {
+                        new_w = w_ij + x_ij * tau;
+                    } else if (rule === 'antihebbian') {
+                        new_w = w_ij - x_ij * tau;
+                    } else if (rule === 'randomwalk') {
+                        new_w = w_ij + x_ij;
+                    }
+
+                    // Clamp weights to [-L, L]
+                    this.weights[i][j] = Math.max(-this.l, Math.min(this.l, new_w));
+                }
+            }
+        }
+    }
+
+    chaoticTransform(iterations) {
+        let result = JSON.parse(JSON.stringify(this.weights));
+        let m = 2 * this.l;
+
+        for (let i = 0; i < this.k; i++) {
+            for (let j = 0; j < this.n; j++) {
+                let w = this.weights[i][j];
+                let x = w + this.l; // unsigned range [0, 2L]
+
+                for (let round = 0; round < iterations; round++) {
+                    let half = Math.floor(m / 2);
+                    let next_x = x < half ? 2 * x : 2 * (m - x);
+                    // Bitwise diffusion step
+                    next_x = (next_x ^ i ^ j ^ round) % (m + 1);
+                    x = next_x;
+                }
+
+                result[i][j] = x - this.l;
+            }
+        }
+        return result;
+    }
+
+    getWeightSum() {
+        let sum = 0;
+        for (let i = 0; i < this.k; i++) {
+            for (let j = 0; j < this.n; j++) {
+                sum += this.weights[i][j];
+            }
+        }
+        return sum;
+    }
+}
+
+// --- TREE PARITY MACHINE RUST WASM WRAPPER ---
+class WasmTPMWrapper {
+    constructor(k, n, l, activationType) {
+        this.k = k;
+        this.n = n;
+        this.l = l;
+        this.activationType = activationType;
+        this.inner = new WasmETPM(k, n, l, activationType);
+        this.lastInput = null;
+    }
+
+    initializeWeights() {
+        // Re-initialize a fresh inner WASM instance to randomize weights
+        this.inner = new WasmETPM(this.k, this.n, this.l, this.activationType);
+    }
+
+    calculateOutput(inputs) {
+        this.lastInput = inputs;
+        // Flatten 2D inputs for WASM boundary passing
+        let flatInputs = [];
+        for (let i = 0; i < this.k; i++) {
+            for (let j = 0; j < this.n; j++) {
+                flatInputs.push(inputs[i][j]);
+            }
+        }
+        return this.inner.calculate_output(flatInputs);
+    }
+
+    calculateLocalFields(inputs) {
+        let flatInputs = [];
+        for (let i = 0; i < this.k; i++) {
+            for (let j = 0; j < this.n; j++) {
+                flatInputs.push(inputs[i][j]);
+            }
+        }
+        return this.inner.calculate_local_fields(flatInputs);
+    }
+
+    updateWeights(tau, rule) {
+        this.inner.update_weights(tau, rule);
+    }
+
+    get weights() {
+        let flat = this.inner.get_weights_flat();
+        let w2d = [];
+        for (let i = 0; i < this.k; i++) {
+            let row = [];
+            for (let j = 0; j < this.n; j++) {
+                row.push(flat[i * this.n + j]);
+            }
+            w2d.push(row);
+        }
+        return w2d;
+    }
+
+    chaoticTransform(iterations) {
+        let flat = this.inner.chaotic_transform_flat(iterations);
+        let w2d = [];
+        for (let i = 0; i < this.k; i++) {
+            let row = [];
+            for (let j = 0; j < this.n; j++) {
+                row.push(flat[i * this.n + j]);
+            }
+            w2d.push(row);
+        }
+        return w2d;
+    }
+
+    getWeightSum() {
+        let flat = this.inner.get_weights_flat();
+        return flat.reduce((a, b) => a + b, 0);
+    }
+}
+
+// Active TPM engine class (defaults to JS, upgraded to WASM on load)
+let TPMClass = JSTPM;
+
+function updateEngineBadge(isWasm) {
+    const badge = document.getElementById('engine-status');
+    if (!badge) return;
+
+    if (isWasm) {
+        badge.className = 'engine-badge wasm';
+        badge.innerHTML = '<span class="ko">⚡ WASM 엔진 활성</span><span class="en">⚡ WASM Engine Active</span>';
+    } else {
+        badge.className = 'engine-badge js';
+        badge.innerHTML = '<span class="ko">⚠️ JS 엔진 (대체)</span><span class="en">⚠️ JS Engine (Fallback)</span>';
+    }
+}
+
+// Start loading WASM in background
+init().then(() => {
+    console.log("DeepEnigma Cryptographic WASM Core Engine Loaded successfully.");
+    TPMClass = WasmTPMWrapper;
+    updateEngineBadge(true);
+    // Trigger reset to swap instances to WASM if not running
+    if (typeof window.triggerReset === 'function') {
+        window.triggerReset();
+    }
+}).catch(err => {
+    console.warn("WASM Engine load failed, using pure JS fallback:", err);
+    TPMClass = JSTPM;
+    updateEngineBadge(false);
+});
+
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- LANGUAGE SWITCHER ---
@@ -26,6 +253,19 @@ document.addEventListener('DOMContentLoaded', () => {
     paramK.addEventListener('input', () => valK.textContent = paramK.value);
     paramN.addEventListener('input', () => valN.textContent = paramN.value);
     paramL.addEventListener('input', () => valL.textContent = paramL.value);
+
+    // Active Query Controls
+    const activeQueryToggle = document.getElementById('param-active-query-toggle');
+    const activeQueryThresholdContainer = document.getElementById('active-query-threshold-container');
+    const activeQueryThreshold = document.getElementById('param-active-query-threshold');
+    const valActiveQueryThreshold = document.getElementById('val-active-query-threshold');
+
+    activeQueryToggle.addEventListener('change', () => {
+        activeQueryThresholdContainer.style.display = activeQueryToggle.checked ? 'block' : 'none';
+    });
+    activeQueryThreshold.addEventListener('input', () => {
+        valActiveQueryThreshold.textContent = activeQueryThreshold.value;
+    });
 
     // --- CHART.JS CONFIGURATION ---
     const ctx = document.getElementById('sync-chart').getContext('2d');
@@ -80,114 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-
-    // --- TREE PARITY MACHINE SIMULATOR IN JS ---
-    class JSTPM {
-        constructor(k, n, l, activationType) {
-            this.k = k;
-            this.n = n;
-            this.l = l;
-            this.activationType = activationType;
-            this.weights = [];
-            this.outputs = [];
-            this.lastInput = [];
-            this.initializeWeights();
-        }
-
-        initializeWeights() {
-            this.weights = [];
-            for (let i = 0; i < this.k; i++) {
-                let row = [];
-                for (let j = 0; j < this.n; j++) {
-                    // Random weight between -L and L
-                    row.push(Math.floor(Math.random() * (2 * this.l + 1)) - this.l);
-                }
-                this.weights.push(row);
-            }
-            this.outputs = new Array(this.k).fill(0);
-        }
-
-        calculateOutput(inputs) {
-            this.lastInput = inputs;
-            let tau = 1;
-
-            for (let i = 0; i < this.k; i++) {
-                let h = 0;
-                for (let j = 0; j < this.n; j++) {
-                    h += this.weights[i][j] * inputs[i][j];
-                }
-
-                let sigma = 1;
-                if (this.activationType === 'standard' || this.activationType === 'hybrid') {
-                    sigma = h > 0 ? 1 : (h < 0 ? -1 : 1);
-                } else if (this.activationType === 'chaotic') {
-                    let freq = Math.PI / (2.0 * this.l);
-                    let val = Math.sin(h * freq);
-                    sigma = val >= 0 ? 1 : -1;
-                }
-
-                this.outputs[i] = sigma;
-                tau *= sigma;
-            }
-            return tau;
-        }
-
-        updateWeights(tau, rule) {
-            for (let i = 0; i < this.k; i++) {
-                if (this.outputs[i] === tau) {
-                    for (let j = 0; j < this.n; j++) {
-                        let w_ij = this.weights[i][j];
-                        let x_ij = this.lastInput[i][j];
-                        let new_w = w_ij;
-
-                        if (rule === 'hebbian') {
-                            new_w = w_ij + x_ij * tau;
-                        } else if (rule === 'antihebbian') {
-                            new_w = w_ij - x_ij * tau;
-                        } else if (rule === 'randomwalk') {
-                            new_w = w_ij + x_ij;
-                        }
-
-                        // Clamp weights to [-L, L]
-                        this.weights[i][j] = Math.max(-this.l, Math.min(this.l, new_w));
-                    }
-                }
-            }
-        }
-
-        chaoticTransform(iterations) {
-            let result = JSON.parse(JSON.stringify(this.weights));
-            let m = 2 * this.l;
-
-            for (let i = 0; i < this.k; i++) {
-                for (let j = 0; j < this.n; j++) {
-                    let w = this.weights[i][j];
-                    let x = w + this.l; // unsigned range [0, 2L]
-
-                    for (let round = 0; round < iterations; round++) {
-                        let half = Math.floor(m / 2);
-                        let next_x = x < half ? 2 * x : 2 * (m - x);
-                        // Bitwise diffusion step
-                        next_x = (next_x ^ i ^ j ^ round) % (m + 1);
-                        x = next_x;
-                    }
-
-                    result[i][j] = x - this.l;
-                }
-            }
-            return result;
-        }
-
-        getWeightSum() {
-            let sum = 0;
-            for (let i = 0; i < this.k; i++) {
-                for (let j = 0; j < this.n; j++) {
-                    sum += this.weights[i][j];
-                }
-            }
-            return sum;
-        }
-    }
 
     function calculateOverlap(w1, w2) {
         let total = w1.length * w1[0].length;
@@ -288,17 +420,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const l = parseInt(paramL.value);
         const act = document.getElementById('param-act').value;
 
-        alice = new JSTPM(k, n, l, act);
-        bob = new JSTPM(k, n, l, act);
-        eve = new JSTPM(k, n, l, act);
+        alice = new TPMClass(k, n, l, act);
+        bob = new TPMClass(k, n, l, act);
+        eve = new TPMClass(k, n, l, act);
 
         // Make sure Alice and Bob are randomized differently
-        while (calculateOverlap(alice.weights, bob.weights) > 30) {
+        let safetyCounter = 0;
+        while (calculateOverlap(alice.weights, bob.weights) > 30 && safetyCounter < 10) {
             alice.initializeWeights();
             bob.initializeWeights();
+            safetyCounter++;
         }
         eve.initializeWeights();
     }
+
+    // Export reset function to window so WASM loader can trigger a reset when ready
+    window.triggerReset = () => {
+        if (!simInterval && currentRound === 0) {
+            resetSimulation();
+        }
+    };
 
     function runSimulationStep() {
         currentRound++;
@@ -307,14 +448,50 @@ document.addEventListener('DOMContentLoaded', () => {
         const rule = document.getElementById('param-rule').value;
         const act = document.getElementById('param-act').value;
 
-        // 1. Generate random public input x
+        // 1. Generate random public input x (optionally filtered by Active Query)
         let x = [];
-        for (let i = 0; i < k; i++) {
-            let row = [];
-            for (let j = 0; j < n; j++) {
-                row.push(Math.random() >= 0.5 ? 1 : -1);
+        const activeQuery = activeQueryToggle.checked;
+        const threshold = parseInt(activeQueryThreshold.value);
+
+        if (activeQuery) {
+            let attempts = 0;
+            while (attempts < 100) {
+                let candidate = [];
+                for (let i = 0; i < k; i++) {
+                    let row = [];
+                    for (let j = 0; j < n; j++) {
+                        row.push(Math.random() >= 0.5 ? 1 : -1);
+                    }
+                    candidate.push(row);
+                }
+
+                // Calculate Alice's local fields
+                let fields = alice.calculateLocalFields(candidate);
+                let minField = Math.min(...fields.map(Math.abs));
+                if (minField <= threshold) {
+                    x = candidate;
+                    break;
+                }
+                attempts++;
             }
-            x.push(row);
+            // Fallback if no candidate meets criteria after 100 attempts
+            if (x.length === 0) {
+                for (let i = 0; i < k; i++) {
+                    let row = [];
+                    for (let j = 0; j < n; j++) {
+                        row.push(Math.random() >= 0.5 ? 1 : -1);
+                    }
+                    x.push(row);
+                }
+            }
+        } else {
+            for (let i = 0; i < k; i++) {
+                let row = [];
+                for (let j = 0; j < n; j++) {
+                    row.push(Math.random() >= 0.5 ? 1 : -1);
+                }
+                x.push(row);
+            }
         }
 
         // 2. Compute outputs

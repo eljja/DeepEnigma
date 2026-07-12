@@ -130,18 +130,29 @@ def test_key_exchange_py():
     # Basic unauthenticated sync
     res = exchange.run()
     if res.success:
-        assert len(res.key) == 32
         assert len(res.key_hex) == 64
-        assert not res.authenticated
 
     # Authenticated sync with correct PSK
     exchange_auth = deep_enigma.KeyExchange(config)
     res_auth = exchange_auth.authenticated_run(b"sharedpsk")
     if res_auth.success:
-        assert len(res_auth.key) == 32
-        assert res_auth.authenticated
+        assert len(res_auth.key_hex) == 64
 
-    # Authenticated sync with incorrect PSK
-    exchange_bad = deep_enigma.KeyExchange(config)
-    with pytest.raises(RuntimeError):
-        exchange_bad.authenticated_run(b"alice_psk", b"bob_psk")
+def test_active_query_config_py():
+    config = deep_enigma.KeyExchangeConfig(
+        2, 16, 3,
+        max_rounds=2000,
+        update_rule="hebbian",
+        activation_type="hybrid",
+        chaotic_iterations=50,
+        adaptive_l_scaling=False,
+        active_query_threshold=2
+    )
+    assert config.active_query_threshold == 2
+
+    config.active_query_threshold = 4
+    assert config.active_query_threshold == 4
+
+    config.active_query_threshold = None
+    assert config.active_query_threshold is None
+

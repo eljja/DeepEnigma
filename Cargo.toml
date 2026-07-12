@@ -10,17 +10,23 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "deepenigma"
 path = "src/bin/deepenigma.rs"
+required-features = ["std"]
 
 [dependencies]
-pyo3 = { version = "0.22" }
-rand = "0.8"
-rand_chacha = "0.3"
-sha2 = "0.10"
-hmac = "0.12"
-hkdf = "0.12"
-hex = "0.4"
-zeroize = { version = "1", features = ["derive"] }
+pyo3 = { version = "0.22", optional = true }
+rand = { version = "0.8", default-features = false, features = ["alloc", "getrandom"] }
+rand_chacha = { version = "0.3", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+hmac = { version = "0.12", default-features = false }
+hkdf = { version = "0.12", default-features = false }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+zeroize = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
 [features]
-default = ["extension-module"]
-extension-module = ["pyo3/extension-module"]
+default = ["std", "extension-module"]
+std = ["rand/std", "sha2/std", "hkdf/std", "zeroize/std", "hex/std"]
+extension-module = ["pyo3", "pyo3/extension-module"]
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+wasm-bindgen = "0.2"

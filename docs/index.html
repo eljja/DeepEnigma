@@ -143,6 +143,25 @@
                         </select>
                     </div>
 
+                    <div class="control-group">
+                        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="param-active-query-toggle" style="width: auto; margin: 0; cursor: pointer;">
+                            <span class="ko">능동 피드백 제어 (Active Query)</span>
+                            <span class="en">Active Query (Feedback Control)</span>
+                        </label>
+                        <div id="active-query-threshold-container" style="margin-top: 12px; display: none;">
+                            <label for="param-active-query-threshold" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>임계값 H (Threshold H)</span>
+                                <span class="val" id="val-active-query-threshold" style="font-weight: bold; color: #00f2fe;">2</span>
+                            </label>
+                            <input type="range" id="param-active-query-threshold" min="0" max="15" value="2" step="1">
+                            <p class="param-info" style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px; line-height: 1.3;">
+                                <span class="ko">경계값 부근의 입력만 선택 전송하여 동기화 속도를 가속화합니다. (0 = 최저 필드)</span>
+                                <span class="en">Filters inputs to boundary fields below H to accelerate synchronization. (0 = lowest field)</span>
+                            </p>
+                        </div>
+                    </div>
+
                     <div class="sim-buttons">
                         <button id="btn-start" class="btn-start">
                             <i class="fa-solid fa-play"></i> <span class="ko">동기화 시작</span><span class="en">Start Sync</span>
@@ -160,6 +179,9 @@
                             <span class="indicator-dot"></span>
                             <span class="status-text ko">대기 중</span>
                             <span class="status-text en">Ready</span>
+                        </div>
+                        <div class="engine-badge" id="engine-status">
+                            <span class="ko">⚙️ 로딩 중</span><span class="en">⚙️ Loading</span>
                         </div>
                         <div class="round-counter">
                             <span class="ko">라운드: </span><span class="en">Round: </span><span id="lbl-rounds">0</span>
@@ -401,6 +423,6 @@
     <!-- ChartJS for Simulator Graph -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom JavaScript -->
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>

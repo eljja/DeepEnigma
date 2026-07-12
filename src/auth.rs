@@ -1,21 +1,45 @@
-//! Zero-Knowledge Proof (ZKP) Mutual Authentication module.
+//! Zero-Knowledge Proof Authentication module.
 //!
-//! Provides a lightweight, hash-based proof of knowledge of a pre-shared secret (PSK)
-//! without revealing the secret itself, protecting against Man-in-the-Middle (MitM)
-//! and replay attacks during the E-TPM key exchange setup.
-//!
-//! # Replay Attack Defense
-//! Each commitment binds a monotonic session counter into the hash, ensuring that
-//! captured authentication transcripts cannot be replayed in future sessions.
+//! Provides Fiat-Shamir-like Hash-based ZKP authentication for E-TPM key exchange.
+//! Mitigates replay attacks by binding commitments to monotonically increasing session counters.
 
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use crate::constant_time::ct_eq;
 
-/// Computes SHA-256 hash of the given data.
+/// Result type alias supporting both PyO3 and pure Rust environments.
+#[cfg(feature = "extension-module")]
+type AuthResult<T> = PyResult<T>;
+
+#[cfg(not(feature = "extension-module"))]
+type AuthResult<T> = Result<T, &'static str>;
+
+#[cfg(feature = "extension-module")]
+macro_rules! make_err {
+    ($msg:expr) => {
+        pyo3::exceptions::PyValueError::new_err($msg)
+    };
+}
+
+#[cfg(not(feature = "extension-module"))]
+macro_rules! make_err {
+    ($msg:expr) => {
+        $msg
+    };
+}
+
+/// Helper function to compute SHA-256 hash of a byte slice.
 fn sha256(data: &[u8]) -> Vec<u8> {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -23,10 +47,7 @@ fn sha256(data: &[u8]) -> Vec<u8> {
 }
 
 /// Prover for the Hash-based Zero-Knowledge Proof of Knowledge.
-///
-/// Holds the pre-shared key (PSK), generates commitments, and responds
-/// to verification challenges without revealing the PSK.
-#[pyclass]
+#[cfg_attr(feature = "extension-module", pyclass)]
 #[derive(Clone)]
 pub struct ZKPProver {
     psk: Vec<u8>,
@@ -42,10 +63,7 @@ impl Drop for ZKPProver {
     }
 }
 
-#[pymethods]
 impl ZKPProver {
-    /// Creates a new Prover instance initialized with the pre-shared secret.
-    #[new]
     pub fn new(psk: Vec<u8>) -> Self {
         Self {
             psk,
@@ -54,10 +72,6 @@ impl ZKPProver {
         }
     }
 
-    /// Generates a random 32-byte nonce, stores it, and returns its SHA-256 commitment.
-    ///
-    /// The commitment includes a monotonically-increasing session counter to
-    /// prevent replay attacks: `C = SHA256(nonce || counter_bytes)`.
     pub fn create_commitment(&mut self) -> Vec<u8> {
         let mut rng = crate::rng::secure_rng();
         let mut r = vec![0u8; 32];
@@ -71,8 +85,6 @@ impl ZKPProver {
         sha256(&commit_data)
     }
 
-    /// Computes the response to a verification challenge:
-    /// `z = SHA256(PSK || nonce || challenge || counter)`.
     pub fn respond(&self, challenge: Vec<u8>) -> Vec<u8> {
         let mut data = Vec::with_capacity(
             self.psk.len() + self.nonce.len() + challenge.len() + 8,
@@ -84,22 +96,48 @@ impl ZKPProver {
         sha256(&data)
     }
 
-    /// Returns the raw nonce generated during `create_commitment`.
     pub fn get_nonce(&self) -> Vec<u8> {
         self.nonce.clone()
     }
 
-    /// Returns the current session counter value.
     pub fn get_session_counter(&self) -> u64 {
         self.session_counter
     }
 }
 
+// Python bindings for ZKPProver
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl ZKPProver {
+    #[new]
+    pub fn py_new(psk: Vec<u8>) -> Self {
+        Self::new(psk)
+    }
+
+    #[pyo3(name = "create_commitment")]
+    pub fn py_create_commitment(&mut self) -> Vec<u8> {
+        self.create_commitment()
+    }
+
+    #[pyo3(name = "respond")]
+    pub fn py_respond(&self, challenge: Vec<u8>) -> Vec<u8> {
+        self.respond(challenge)
+    }
+
+    #[pyo3(name = "get_nonce")]
+    pub fn py_get_nonce(&self) -> Vec<u8> {
+        self.get_nonce()
+    }
+
+    #[pyo3(name = "get_session_counter")]
+    pub fn py_get_session_counter(&self) -> u64 {
+        self.get_session_counter()
+    }
+}
+
+
 /// Verifier for the Hash-based Zero-Knowledge Proof of Knowledge.
-///
-/// Receives a prover's commitment, issues a random challenge, and verifies
-/// the response using constant-time comparisons.
-#[pyclass]
+#[cfg_attr(feature = "extension-module", pyclass)]
 #[derive(Clone)]
 pub struct ZKPVerifier {
     psk: Vec<u8>,
@@ -117,10 +155,7 @@ impl Drop for ZKPVerifier {
     }
 }
 
-#[pymethods]
 impl ZKPVerifier {
-    /// Creates a new Verifier instance initialized with the pre-shared secret.
-    #[new]
     pub fn new(psk: Vec<u8>) -> Self {
         Self {
             psk,
@@ -130,60 +165,72 @@ impl ZKPVerifier {
         }
     }
 
-    /// Receives and registers the prover's commitment.
     pub fn receive_commitment(&mut self, commitment: Vec<u8>) {
         self.commitment = commitment;
     }
 
-    /// Generates and returns a random 32-byte verification challenge.
     pub fn create_challenge(&mut self) -> Vec<u8> {
         let mut rng = crate::rng::secure_rng();
         let mut c = vec![0u8; 32];
         rng.fill(&mut c[..]);
-        self.challenge = c;
-        self.challenge.clone()
+        self.challenge = c.clone();
+        c
     }
 
-    /// Verifies the prover's response using **constant-time** comparisons.
-    ///
-    /// Checks that:
-    /// 1. The session counter is strictly greater than the last seen counter (replay defense)
-    /// 2. `SHA256(nonce || counter) == commitment` (commitment integrity)
-    /// 3. `SHA256(PSK || nonce || challenge || counter) == response` (secret knowledge)
-    ///
-    /// All byte comparisons use `ct_eq` to prevent timing side-channel attacks.
-    pub fn verify(&mut self, nonce: Vec<u8>, response: Vec<u8>, session_counter: u64) -> bool {
-        if self.commitment.is_empty() || self.challenge.is_empty() {
-            return false;
+    pub fn verify(&mut self, nonce: Vec<u8>, response: Vec<u8>, counter: u64) -> AuthResult<bool> {
+        if counter <= self.last_seen_counter {
+            return Err(make_err!("Replay attack detected: session counter is not increasing"));
         }
 
-        // Replay defense: reject if counter is not strictly increasing
-        if session_counter <= self.last_seen_counter {
-            return false;
-        }
-
-        // Verify commitment match (constant-time)
+        // 1. Verify commitment matches nonce and counter
         let mut commit_data = nonce.clone();
-        commit_data.extend_from_slice(&session_counter.to_le_bytes());
-        let expected_commitment = sha256(&commit_data);
-        if !ct_eq(&expected_commitment, &self.commitment) {
-            return false;
+        commit_data.extend_from_slice(&counter.to_le_bytes());
+        let expected_commit = sha256(&commit_data);
+
+        let commitment_valid = ct_eq(&self.commitment, &expected_commit);
+
+        // 2. Verify response matches PSK, nonce, challenge, and counter
+        let mut resp_data = Vec::with_capacity(
+            self.psk.len() + nonce.len() + self.challenge.len() + 8,
+        );
+        resp_data.extend_from_slice(&self.psk);
+        resp_data.extend_from_slice(&nonce);
+        resp_data.extend_from_slice(&self.challenge);
+        resp_data.extend_from_slice(&counter.to_le_bytes());
+        let expected_resp = sha256(&resp_data);
+
+        let response_valid = ct_eq(&response, &expected_resp);
+
+        if commitment_valid && response_valid {
+            self.last_seen_counter = counter;
+            Ok(true)
+        } else {
+            Ok(false)
         }
+    }
+}
 
-        // Verify secret knowledge match (constant-time)
-        let mut data = Vec::with_capacity(self.psk.len() + nonce.len() + self.challenge.len() + 8);
-        data.extend_from_slice(&self.psk);
-        data.extend_from_slice(&nonce);
-        data.extend_from_slice(&self.challenge);
-        data.extend_from_slice(&session_counter.to_le_bytes());
+// Python bindings for ZKPVerifier
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl ZKPVerifier {
+    #[new]
+    pub fn py_new(psk: Vec<u8>) -> Self {
+        Self::new(psk)
+    }
 
-        let expected_response = sha256(&data);
-        let valid = ct_eq(&expected_response, &response);
+    #[pyo3(name = "receive_commitment")]
+    pub fn py_receive_commitment(&mut self, commitment: Vec<u8>) {
+        self.receive_commitment(commitment);
+    }
 
-        if valid {
-            self.last_seen_counter = session_counter;
-        }
+    #[pyo3(name = "create_challenge")]
+    pub fn py_create_challenge(&mut self) -> Vec<u8> {
+        self.create_challenge()
+    }
 
-        valid
+    #[pyo3(name = "verify")]
+    pub fn py_verify(&mut self, nonce: Vec<u8>, response: Vec<u8>, counter: u64) -> AuthResult<bool> {
+        self.verify(nonce, response, counter)
     }
 }

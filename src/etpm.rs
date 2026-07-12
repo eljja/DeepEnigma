@@ -1,12 +1,49 @@
+//! E-TPM (Enhanced Tree Parity Machine) Core Module.
+//!
+//! Implements a hardened artificial neural network structure for public key exchange.
+//! Supports standard sign activation, chaotic sine activation, constant-time weight
+//! updating, and secure memory zeroization.
+
+#[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
 use crate::constant_time::ct_select_i32;
 
-#[pyclass(eq, eq_int)]
+/// Result type alias supporting both PyO3 and pure Rust environments.
+#[cfg(feature = "extension-module")]
+type ETPMResult<T> = PyResult<T>;
+
+#[cfg(not(feature = "extension-module"))]
+type ETPMResult<T> = Result<T, &'static str>;
+
+#[cfg(feature = "extension-module")]
+macro_rules! make_err {
+    ($msg:expr) => {
+        pyo3::exceptions::PyValueError::new_err($msg)
+    };
+}
+
+#[cfg(not(feature = "extension-module"))]
+macro_rules! make_err {
+    ($msg:expr) => {
+        $msg
+    };
+}
+
+#[cfg_attr(feature = "extension-module", pyclass(eq, eq_int))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UpdateRule {
     Hebbian,
@@ -18,24 +55,22 @@ impl UpdateRule {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "hebbian" => Some(Self::Hebbian),
-            "antihebbian" | "anti-hebbian" => Some(Self::AntiHebbian),
-            "randomwalk" | "random-walk" => Some(Self::RandomWalk),
+            "antihebbian" => Some(Self::AntiHebbian),
+            "randomwalk" => Some(Self::RandomWalk),
             _ => None,
         }
     }
 }
 
-#[pyclass(eq, eq_int)]
+#[cfg_attr(feature = "extension-module", pyclass(eq, eq_int))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActivationType {
-    /// Standard sign-based activation: σ(h) = sign(h).
+    /// Standard step sign activation: σ(h) = sign(h).
     Standard,
     /// Pure chaotic activation: σ(h) = sign(sin(π·h/(2L))).
-    /// WARNING: Impedes synchronization convergence. Use Hybrid for production.
     Chaotic,
-    /// Hybrid mode: uses Standard activation during synchronization for reliable
+    /// Hybrid mode: Standard sign activation is used for synchronization
     /// convergence, then applies chaotic weight transformation for key hardening.
-    /// This is the recommended production mode.
     Hybrid,
 }
 
@@ -50,59 +85,50 @@ impl ActivationType {
     }
 }
 
-#[pyclass]
+/// Core E-TPM Neural Network Structure.
+#[cfg_attr(feature = "extension-module", pyclass)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ETPM {
-    #[pyo3(get)]
+    /// Number of hidden units (K).
     pub k: usize,
-    #[pyo3(get)]
+    /// Number of input neurons per unit (N).
     pub n: usize,
-    #[pyo3(get)]
+    /// Synaptic depth limit (L).
     pub l: i32,
+    /// Synaptic weight matrices: shape [K][N].
     pub weights: Vec<Vec<i32>>,
+    /// Output states of the K hidden units.
     pub outputs: Vec<i32>,
+    /// Last processed input matrix: shape [K][N].
     pub last_input: Vec<Vec<i32>>,
-    #[pyo3(get)]
+    /// Selected activation function.
     pub activation_type: ActivationType,
 }
 
-/// Securely wipe all weight and state data when ETPM is dropped.
-/// This prevents secrets from lingering in memory after use (Cold Boot defense).
+/// Securely wipe E-TPM weights from memory when dropped.
 impl Drop for ETPM {
     fn drop(&mut self) {
         for row in &mut self.weights {
             row.zeroize();
         }
-        self.outputs.zeroize();
-        for row in &mut self.last_input {
-            row.zeroize();
-        }
     }
 }
 
-#[pymethods]
 impl ETPM {
-    #[new]
-    #[pyo3(signature = (k, n, l, activation_type = "hybrid"))]
-    pub fn new(k: usize, n: usize, l: i32, activation_type: &str) -> PyResult<Self> {
+    pub fn new(k: usize, n: usize, l: i32, activation_type: &str) -> ETPMResult<Self> {
         // Parameter validation to prevent degenerate or dangerous configurations.
         if k == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "K (hidden units) must be >= 1",
-            ));
+            return Err(make_err!("K (hidden units) must be >= 1"));
         }
         if n == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "N (inputs per unit) must be >= 1",
-            ));
+            return Err(make_err!("N (inputs per unit) must be >= 1"));
         }
         if l <= 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "L (synaptic depth) must be >= 1",
-            ));
+            return Err(make_err!("L (synaptic depth) must be >= 1"));
         }
 
         let act_type = ActivationType::from_str(activation_type)
-            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Invalid activation type. Choose 'standard', 'chaotic', or 'hybrid'."))?;
+            .ok_or_else(|| make_err!("Invalid activation type. Choose 'standard', 'chaotic', or 'hybrid'."))?;
 
         // Initialize weights to 0 first, will be randomized in initialize_weights
         let weights = vec![vec![0; n]; k];
@@ -119,15 +145,14 @@ impl ETPM {
             activation_type: act_type,
         };
 
-        // Randomly initialize weights using default thread rng
+        // Randomly initialize weights using default secure OS RNG
         etpm.initialize_weights(None)?;
 
         Ok(etpm)
     }
 
     /// Initializes or randomizes weights. If a seed is provided, a deterministic RNG (ChaCha8) is used.
-    #[pyo3(signature = (seed = None))]
-    pub fn initialize_weights(&mut self, seed: Option<u64>) -> PyResult<()> {
+    pub fn initialize_weights(&mut self, seed: Option<u64>) -> ETPMResult<()> {
         let mut rng: Box<dyn RngCore> = match seed {
             Some(s) => Box::new(ChaCha8Rng::seed_from_u64(s)),
             None => Box::new(crate::rng::secure_rng()),
@@ -143,29 +168,18 @@ impl ETPM {
 
     /// Computes the output of the E-TPM for a given input matrix.
     /// Inputs should be shape K x N with values in {-1, 1}.
-    pub fn calculate_output(&mut self, inputs: Vec<Vec<i32>>) -> PyResult<i32> {
+    pub fn calculate_output(&mut self, inputs: Vec<Vec<i32>>) -> ETPMResult<i32> {
         if inputs.len() != self.k {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Input row count ({}) must match K ({})",
-                inputs.len(),
-                self.k
-            )));
+            return Err(make_err!("Input row count must match K"));
         }
 
-        for (i, row) in inputs.iter().enumerate() {
+        for row in inputs.iter() {
             if row.len() != self.n {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "Input column count at row {} ({}) must match N ({})",
-                    i,
-                    row.len(),
-                    self.n
-                )));
+                return Err(make_err!("Input column count must match N"));
             }
             for &val in row.iter() {
                 if val != 1 && val != -1 {
-                    return Err(pyo3::exceptions::PyValueError::new_err(
-                        "Input values must be either -1 or 1",
-                    ));
+                    return Err(make_err!("Input values must be either -1 or 1"));
                 }
             }
         }
@@ -194,11 +208,11 @@ impl ETPM {
                     }
                 }
                 ActivationType::Chaotic => {
-                    // Pure chaotic activation: sin(π·h/(2L)).
-                    // Note: this mode disrupts synchronization convergence.
-                    let freq = std::f64::consts::PI / (2.0 * self.l as f64);
-                    let val = (h as f64 * freq).sin();
-                    if val >= 0.0 {
+                    // Pure chaotic activation: sign of sin(π·h/(2L)).
+                    // Computed using pure integer modulo to support no_std without float dependencies.
+                    let two_l = 2 * self.l;
+                    let h_mod = h.rem_euclid(2 * two_l);
+                    if h_mod < two_l {
                         1
                     } else {
                         -1
@@ -214,17 +228,9 @@ impl ETPM {
     }
 
     /// Updates weights based on the specified rule and parity output tau.
-    ///
-    /// Uses **constant-time conditional masking** to prevent timing side-channel
-    /// attacks: the update delta is always computed for every hidden unit, then
-    /// multiplied by a 0-or-1 mask derived from the output-match condition.
-    /// This ensures execution time is independent of which units match tau.
-    #[pyo3(signature = (tau, rule = "hebbian"))]
-    pub fn update_weights(&mut self, tau: i32, rule: &str) -> PyResult<()> {
+    pub fn update_weights(&mut self, tau: i32, rule: &str) -> ETPMResult<()> {
         let rule_enum = UpdateRule::from_str(rule).ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err(
-                "Invalid update rule. Choose 'hebbian', 'antihebbian', or 'randomwalk'.",
-            )
+            make_err!("Invalid update rule. Choose 'hebbian', 'antihebbian', or 'randomwalk'.")
         })?;
 
         for i in 0..self.k {
@@ -241,29 +247,28 @@ impl ETPM {
                     UpdateRule::RandomWalk => x_ij,
                 };
 
-                // ct_select_i32: returns delta if match, 0 otherwise (no branch)
-                let applied_delta = ct_select_i32(match_condition, delta, 0);
-                let new_w = w_ij + applied_delta;
+                let new_w = w_ij + delta;
 
-                // Clamp weights to [-L, L]
-                self.weights[i][j] = new_w.clamp(-self.l, self.l);
+                // Constant-time clamp:
+                let clamped = new_w.clamp(-self.l, self.l);
+
+                // Constant-time update select using bitwise selection
+                self.weights[i][j] = ct_select_i32(match_condition, clamped, w_ij);
             }
         }
         Ok(())
     }
 
-    /// Dynamically scales synaptic depth L, mapping current weights into the new bounds.
-    pub fn scale_synaptic_depth(&mut self, new_l: i32) -> PyResult<()> {
+    pub fn scale_synaptic_depth(&mut self, new_l: i32) -> ETPMResult<()> {
         if new_l <= self.l {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "New synaptic depth L must be greater than current L",
-            ));
+            return Err(make_err!("New synaptic depth L must be greater than current L"));
         }
 
         let scale = new_l as f64 / self.l as f64;
         for i in 0..self.k {
             for j in 0..self.n {
-                let scaled_w = (self.weights[i][j] as f64 * scale).round() as i32;
+                let val = self.weights[i][j] as f64 * scale;
+                let scaled_w = if val >= 0.0 { (val + 0.5) as i32 } else { (val - 0.5) as i32 };
                 self.weights[i][j] = scaled_w.clamp(-new_l, new_l);
             }
         }
@@ -275,30 +280,17 @@ impl ETPM {
         self.weights.clone()
     }
 
-    pub fn set_weights(&mut self, weights: Vec<Vec<i32>>) -> PyResult<()> {
+    pub fn set_weights(&mut self, weights: Vec<Vec<i32>>) -> ETPMResult<()> {
         if weights.len() != self.k {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Weight row count ({}) must match K ({})",
-                weights.len(),
-                self.k
-            )));
+            return Err(make_err!("Weight row count must match K"));
         }
-        for (i, row) in weights.iter().enumerate() {
+        for row in weights.iter() {
             if row.len() != self.n {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "Weight column count at row {} ({}) must match N ({})",
-                    i,
-                    row.len(),
-                    self.n
-                )));
+                return Err(make_err!("Weight column count must match N"));
             }
             for &val in row.iter() {
                 if val.abs() > self.l {
-                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                        "Weight value {} exceeds synaptic depth L ({})",
-                        val,
-                        self.l
-                    )));
+                    return Err(make_err!("Weight value exceeds synaptic depth L"));
                 }
             }
         }
@@ -312,13 +304,6 @@ impl ETPM {
 
     /// Applies a chaotic integer-only transformation to the weight matrix
     /// for key hardening before SHA-256 derivation.
-    ///
-    /// Uses a combination of integer Tent Map and SipHash-inspired non-linear
-    /// mixing to guarantee both platform-independent determinism (integer-only)
-    /// and strong Avalanche Effect (SAC-compliant diffusion).
-    ///
-    /// Returns the chaotically-transformed weight matrix without modifying
-    /// the original ETPM state.
     pub fn chaotic_transform(&self, iterations: u32) -> Vec<Vec<i32>> {
         let mut result = self.weights.clone();
         let m = (2 * self.l) as i64;
@@ -340,8 +325,6 @@ impl ETPM {
                     };
 
                     // SipHash-inspired non-linear mixing for strong Avalanche effect.
-                    // Combines coordinate indices, round counter, and tent map output
-                    // through multiply-xor-shift operations for thorough bit diffusion.
                     let mix_key = (i as u64)
                         .wrapping_mul(0x517cc1b727220a95)
                         ^ (j as u64).wrapping_mul(0x6c62272e07bb0142)
@@ -362,9 +345,6 @@ impl ETPM {
     }
 
     /// Computes a 32-byte fingerprint of the current weight state.
-    ///
-    /// Useful for quickly comparing weight matrices without transmitting
-    /// the full weight vector over the wire.
     pub fn weight_fingerprint(&self) -> Vec<u8> {
         let mut hasher = Sha256::new();
         for row in &self.weights {
@@ -373,5 +353,103 @@ impl ETPM {
             }
         }
         hasher.finalize().to_vec()
+    }
+
+    /// Computes the local field values h_i for each hidden unit.
+    pub fn calculate_local_fields(&self, inputs: &Vec<Vec<i32>>) -> Vec<i32> {
+        let mut fields = vec![0; self.k];
+        for i in 0..self.k {
+            let mut sum = 0;
+            for j in 0..self.n {
+                sum += self.weights[i][j] * inputs[i][j];
+            }
+            fields[i] = sum;
+        }
+        fields
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Python bindings
+// ---------------------------------------------------------------------------
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl ETPM {
+    #[new]
+    #[pyo3(signature = (k, n, l, activation_type = "hybrid"))]
+    pub fn py_new(k: usize, n: usize, l: i32, activation_type: &str) -> ETPMResult<Self> {
+        Self::new(k, n, l, activation_type)
+    }
+
+    #[pyo3(name = "initialize_weights")]
+    #[pyo3(signature = (seed = None))]
+    pub fn py_initialize_weights(&mut self, seed: Option<u64>) -> ETPMResult<()> {
+        self.initialize_weights(seed)
+    }
+
+    #[pyo3(name = "calculate_output")]
+    pub fn py_calculate_output(&mut self, inputs: Vec<Vec<i32>>) -> ETPMResult<i32> {
+        self.calculate_output(inputs)
+    }
+
+    #[pyo3(name = "update_weights")]
+    #[pyo3(signature = (tau, rule = "hebbian"))]
+    pub fn py_update_weights(&mut self, tau: i32, rule: &str) -> ETPMResult<()> {
+        self.update_weights(tau, rule)
+    }
+
+    #[pyo3(name = "scale_synaptic_depth")]
+    pub fn py_scale_synaptic_depth(&mut self, new_l: i32) -> ETPMResult<()> {
+        self.scale_synaptic_depth(new_l)
+    }
+
+    #[pyo3(name = "get_weights")]
+    pub fn py_get_weights(&self) -> Vec<Vec<i32>> {
+        self.get_weights()
+    }
+
+    #[pyo3(name = "set_weights")]
+    pub fn py_set_weights(&mut self, weights: Vec<Vec<i32>>) -> ETPMResult<()> {
+        self.set_weights(weights)
+    }
+
+    #[pyo3(name = "get_hidden_outputs")]
+    pub fn py_get_hidden_outputs(&self) -> Vec<i32> {
+        self.get_hidden_outputs()
+    }
+
+    #[pyo3(name = "chaotic_transform")]
+    pub fn py_chaotic_transform(&self, iterations: u32) -> Vec<Vec<i32>> {
+        self.chaotic_transform(iterations)
+    }
+
+    #[pyo3(name = "weight_fingerprint")]
+    pub fn py_weight_fingerprint(&self) -> Vec<u8> {
+        self.weight_fingerprint()
+    }
+
+    #[pyo3(name = "calculate_local_fields")]
+    pub fn py_calculate_local_fields(&self, inputs: Vec<Vec<i32>>) -> Vec<i32> {
+        self.calculate_local_fields(&inputs)
+    }
+
+    #[getter]
+    pub fn k(&self) -> usize {
+        self.k
+    }
+
+    #[getter]
+    pub fn n(&self) -> usize {
+        self.n
+    }
+
+    #[getter]
+    pub fn l(&self) -> i32 {
+        self.l
+    }
+
+    #[getter]
+    pub fn activation_type(&self) -> ActivationType {
+        self.activation_type
     }
 }

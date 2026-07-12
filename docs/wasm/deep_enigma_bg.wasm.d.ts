@@ -1,0 +1,29 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_get_wasmkeyexchangeresult_rounds: (a: number) => number;
+export const __wbg_get_wasmkeyexchangeresult_success: (a: number) => number;
+export const __wbg_get_wasmkeyexchangeresult_sync_time_ms: (a: number) => number;
+export const __wbg_set_wasmkeyexchangeresult_rounds: (a: number, b: number) => void;
+export const __wbg_set_wasmkeyexchangeresult_success: (a: number, b: number) => void;
+export const __wbg_set_wasmkeyexchangeresult_sync_time_ms: (a: number, b: number) => void;
+export const __wbg_wasmetpm_free: (a: number, b: number) => void;
+export const __wbg_wasmkeyexchangeresult_free: (a: number, b: number) => void;
+export const run_wasm_key_exchange: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+export const wasmetpm_calculate_local_fields: (a: number, b: number, c: number) => [number, number, number, number];
+export const wasmetpm_calculate_output: (a: number, b: number, c: number) => [number, number, number];
+export const wasmetpm_chaotic_transform_flat: (a: number, b: number) => [number, number];
+export const wasmetpm_get_l: (a: number) => number;
+export const wasmetpm_get_weights_flat: (a: number) => [number, number];
+export const wasmetpm_new: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+export const wasmetpm_scale_synaptic_depth: (a: number, b: number) => [number, number];
+export const wasmetpm_update_weights: (a: number, b: number, c: number, d: number) => [number, number];
+export const wasmkeyexchangeresult_key_hex: (a: number) => [number, number];
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

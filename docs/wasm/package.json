@@ -1,0 +1,15 @@
+{
+  "name": "deep_enigma",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "deep_enigma_bg.wasm",
+    "deep_enigma.js",
+    "deep_enigma.d.ts"
+  ],
+  "main": "deep_enigma.js",
+  "types": "deep_enigma.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
