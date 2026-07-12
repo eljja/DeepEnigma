@@ -1,6 +1,10 @@
 use pyo3::prelude::*;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
+use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
+
+use crate::constant_time::ct_select_i32;
 
 #[pyclass(eq, eq_int)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -61,11 +65,42 @@ pub struct ETPM {
     pub activation_type: ActivationType,
 }
 
+/// Securely wipe all weight and state data when ETPM is dropped.
+/// This prevents secrets from lingering in memory after use (Cold Boot defense).
+impl Drop for ETPM {
+    fn drop(&mut self) {
+        for row in &mut self.weights {
+            row.zeroize();
+        }
+        self.outputs.zeroize();
+        for row in &mut self.last_input {
+            row.zeroize();
+        }
+    }
+}
+
 #[pymethods]
 impl ETPM {
     #[new]
     #[pyo3(signature = (k, n, l, activation_type = "hybrid"))]
     pub fn new(k: usize, n: usize, l: i32, activation_type: &str) -> PyResult<Self> {
+        // Parameter validation to prevent degenerate or dangerous configurations.
+        if k == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "K (hidden units) must be >= 1",
+            ));
+        }
+        if n == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "N (inputs per unit) must be >= 1",
+            ));
+        }
+        if l <= 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "L (synaptic depth) must be >= 1",
+            ));
+        }
+
         let act_type = ActivationType::from_str(activation_type)
             .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Invalid activation type. Choose 'standard', 'chaotic', or 'hybrid'."))?;
 
@@ -179,42 +214,39 @@ impl ETPM {
     }
 
     /// Updates weights based on the specified rule and parity output tau.
-    /// Only updates weights of hidden units whose output matches the overall parity output tau.
-    #[pyo3(signature = (tau, rule = "chaotic"))]
+    ///
+    /// Uses **constant-time conditional masking** to prevent timing side-channel
+    /// attacks: the update delta is always computed for every hidden unit, then
+    /// multiplied by a 0-or-1 mask derived from the output-match condition.
+    /// This ensures execution time is independent of which units match tau.
+    #[pyo3(signature = (tau, rule = "hebbian"))]
     pub fn update_weights(&mut self, tau: i32, rule: &str) -> PyResult<()> {
-        let rule_enum = match rule.to_lowercase().as_str() {
-            "chaotic" => {
-                // If "chaotic" is passed, we select a rule deterministically using the hash of weights,
-                // or just fallback. Let's make it select a rule based on weight sum parity to make it dynamic.
-                let sum: i32 = self.weights.iter().map(|row| row.iter().sum::<i32>()).sum();
-                match sum.abs() % 3 {
-                    0 => UpdateRule::Hebbian,
-                    1 => UpdateRule::AntiHebbian,
-                    _ => UpdateRule::RandomWalk,
-                }
-            }
-            s => UpdateRule::from_str(s).ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err(
-                    "Invalid update rule. Choose 'hebbian', 'antihebbian', 'randomwalk', or 'chaotic'.",
-                )
-            })?,
-        };
+        let rule_enum = UpdateRule::from_str(rule).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(
+                "Invalid update rule. Choose 'hebbian', 'antihebbian', or 'randomwalk'.",
+            )
+        })?;
 
         for i in 0..self.k {
-            if self.outputs[i] == tau {
-                for j in 0..self.n {
-                    let w_ij = self.weights[i][j];
-                    let x_ij = self.last_input[i][j];
+            // Constant-time: always compute delta, select via mask.
+            let match_condition = self.outputs[i] == tau;
 
-                    let new_w = match rule_enum {
-                        UpdateRule::Hebbian => w_ij + x_ij * tau,
-                        UpdateRule::AntiHebbian => w_ij - x_ij * tau,
-                        UpdateRule::RandomWalk => w_ij + x_ij,
-                    };
+            for j in 0..self.n {
+                let w_ij = self.weights[i][j];
+                let x_ij = self.last_input[i][j];
 
-                    // Clip weights to [-L, L]
-                    self.weights[i][j] = new_w.clamp(-self.l, self.l);
-                }
+                let delta = match rule_enum {
+                    UpdateRule::Hebbian => x_ij * tau,
+                    UpdateRule::AntiHebbian => -x_ij * tau,
+                    UpdateRule::RandomWalk => x_ij,
+                };
+
+                // ct_select_i32: returns delta if match, 0 otherwise (no branch)
+                let applied_delta = ct_select_i32(match_condition, delta, 0);
+                let new_w = w_ij + applied_delta;
+
+                // Clamp weights to [-L, L]
+                self.weights[i][j] = new_w.clamp(-self.l, self.l);
             }
         }
         Ok(())
@@ -278,12 +310,12 @@ impl ETPM {
         self.outputs.clone()
     }
 
-    /// Applies a chaotic integer-only Tent Map transformation to the weight matrix.
+    /// Applies a chaotic integer-only transformation to the weight matrix
+    /// for key hardening before SHA-256 derivation.
     ///
-    /// This is used in Hybrid mode after synchronization to harden the key
-    /// before SHA-256 derivation. Using integer-only arithmetic guarantees that
-    /// the key exchange is 100% deterministic and yields identical keys on all
-    /// CPU architectures (e.g. x86, ARM, RISC-V), preventing float-discrepancies.
+    /// Uses a combination of integer Tent Map and SipHash-inspired non-linear
+    /// mixing to guarantee both platform-independent determinism (integer-only)
+    /// and strong Avalanche Effect (SAC-compliant diffusion).
     ///
     /// Returns the chaotically-transformed weight matrix without modifying
     /// the original ETPM state.
@@ -301,15 +333,25 @@ impl ETPM {
                     // Integer chaotic Tent map:
                     // x_{n+1} = 2*x_n if x_n < M/2 else 2*(M - x_n)
                     let half = m / 2;
-                    let mut next_x = if x < half {
+                    let next_tent = if x < half {
                         2 * x
                     } else {
                         2 * (m - x)
                     };
 
-                    // Apply coordinate and round-based non-linear mixing/diffusion
-                    next_x = (next_x ^ (i as i64) ^ (j as i64) ^ (round as i64)) % (m + 1);
-                    x = next_x;
+                    // SipHash-inspired non-linear mixing for strong Avalanche effect.
+                    // Combines coordinate indices, round counter, and tent map output
+                    // through multiply-xor-shift operations for thorough bit diffusion.
+                    let mix_key = (i as u64)
+                        .wrapping_mul(0x517cc1b727220a95)
+                        ^ (j as u64).wrapping_mul(0x6c62272e07bb0142)
+                        ^ (round as u64).wrapping_mul(0x9e3779b97f4a7c15);
+                    let mixed = (next_tent as u64).wrapping_add(mix_key);
+                    let mixed = mixed ^ (mixed >> 17);
+                    let mixed = mixed.wrapping_mul(0xbf58476d1ce4e5b9);
+                    let mixed = mixed ^ (mixed >> 31);
+
+                    x = (mixed % (m as u64 + 1)) as i64;
                 }
 
                 // Shift back to signed range [-L, L]
@@ -317,5 +359,19 @@ impl ETPM {
             }
         }
         result
+    }
+
+    /// Computes a 32-byte fingerprint of the current weight state.
+    ///
+    /// Useful for quickly comparing weight matrices without transmitting
+    /// the full weight vector over the wire.
+    pub fn weight_fingerprint(&self) -> Vec<u8> {
+        let mut hasher = Sha256::new();
+        for row in &self.weights {
+            for &w in row {
+                hasher.update(w.to_le_bytes());
+            }
+        }
+        hasher.finalize().to_vec()
     }
 }

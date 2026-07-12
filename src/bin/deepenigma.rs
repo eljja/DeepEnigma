@@ -13,8 +13,10 @@
 use deep_enigma::benchmark::Benchmark;
 use deep_enigma::etpm::ETPM;
 use rand::prelude::*;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
+use hkdf::Hkdf;
 use std::time::Instant;
+use zeroize::Zeroize;
 
 // ── CLI argument parsing ────────────────────────────────────────────────────
 
@@ -94,16 +96,20 @@ fn random_inputs(k: usize, n: usize) -> Vec<Vec<i32>> {
         .collect()
 }
 
-/// Derives a 256-bit hex key from a weight matrix using SHA-256.
+/// Derives a 256-bit hex key from a weight matrix using HKDF-SHA256.
 fn derive_key(weights: &[Vec<i32>]) -> String {
-    let mut hasher = Sha256::new();
+    let mut ikm: Vec<u8> = Vec::with_capacity(weights.len() * weights[0].len() * 4);
     for row in weights {
         for &w in row {
-            hasher.update(w.to_le_bytes());
+            ikm.extend_from_slice(&w.to_le_bytes());
         }
     }
-    let hash = hasher.finalize();
-    hex::encode(hash)
+    let hk = Hkdf::<Sha256>::new(None, &ikm);
+    let info = b"DeepEnigma-v1-session-key";
+    let mut okm = vec![0u8; 32];
+    hk.expand(info, &mut okm).expect("HKDF expand failed");
+    ikm.zeroize();
+    hex::encode(okm)
 }
 
 fn print_banner() {

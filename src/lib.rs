@@ -1,18 +1,20 @@
 pub mod auth;
 pub mod benchmark;
+pub mod constant_time;
 pub mod etpm;
 pub mod protocol;
 pub mod security;
 
 pub use auth::{ZKPProver, ZKPVerifier};
 pub use benchmark::{Benchmark, BenchmarkResult};
+pub use constant_time::{ct_eq, ct_mask_i32, ct_select_i32};
 pub use etpm::{ActivationType, UpdateRule, ETPM};
 pub use protocol::{KeyExchange, KeyExchangeConfig, KeyExchangeResult};
 pub use security::{AttackResult, SecurityAnalyzer};
 
 use pyo3::prelude::*;
 
-/// DeepEnigma: Neural Network-based Cryptographic Key Exchange Module.
+/// Python module entry point for the `deep_enigma` package.
 #[pymodule]
 fn deep_enigma(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Core E-TPM types

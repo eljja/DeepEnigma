@@ -6,7 +6,7 @@ fn test_etpm_creation() {
     assert_eq!(etpm.k, 4);
     assert_eq!(etpm.n, 100);
     assert_eq!(etpm.l, 8);
-    matches!(etpm.activation_type, ActivationType::Chaotic);
+    assert!(matches!(etpm.activation_type, ActivationType::Chaotic));
 
     let weights = etpm.get_weights();
     assert_eq!(weights.len(), 4);
@@ -139,20 +139,60 @@ fn test_zkp_authentication() {
     assert_eq!(challenge.len(), 32);
 
     // Alice responds to challenge
-    let response = prover.respond(challenge);
+    let response = prover.respond(challenge.clone());
     assert_eq!(response.len(), 32);
 
     // Bob verifies Alice's proof
     let nonce = prover.get_nonce();
-    let success = verifier.verify(nonce, response);
+    let counter = prover.get_session_counter();
+    let success = verifier.verify(nonce, response, counter);
     assert!(success);
+
+    // Replay attack: verifying again with the same counter should fail
+    let replay_success = verifier.verify(prover.get_nonce(), prover.respond(challenge), counter);
+    assert!(!replay_success);
 
     // Verify with incorrect PSK fails
     let bad_verifier = ZKPVerifier::new(b"wrongpsk".to_vec());
     let mut bad_verifier = bad_verifier;
-    bad_verifier.receive_commitment(prover.create_commitment());
+    let new_commitment = prover.create_commitment();
+    bad_verifier.receive_commitment(new_commitment);
     let challenge = bad_verifier.create_challenge();
     let response = prover.respond(challenge);
-    let success = bad_verifier.verify(prover.get_nonce(), response);
+    let success = bad_verifier.verify(prover.get_nonce(), response, prover.get_session_counter());
     assert!(!success);
+}
+
+#[test]
+fn test_authenticated_key_exchange() {
+    use deep_enigma::{KeyExchange, KeyExchangeConfig};
+
+    let config = KeyExchangeConfig::new(
+        2,
+        20,
+        4,
+        2000,
+        "hebbian".to_string(),
+        "hybrid".to_string(),
+        50,
+    );
+
+    let mut exchange = KeyExchange::new(&config).unwrap();
+    let psk = b"mutualsecretpassword".to_vec();
+
+    // Authenticated key exchange runs and should succeed or at least execute ZKP successfully
+    let result = exchange.authenticated_run(psk.clone(), None);
+    assert!(result.is_ok());
+
+    let result = result.unwrap();
+    if result.success {
+        assert_eq!(result.key.len(), 32);
+        assert_eq!(result.key_hex.len(), 64);
+        assert!(result.authenticated);
+    }
+
+    // Authenticated key exchange with wrong PSK fails ZKP and returns error
+    let mut bad_exchange = KeyExchange::new(&config).unwrap();
+    let bad_result = bad_exchange.authenticated_run(b"alice_psk".to_vec(), Some(b"bob_psk".to_vec()));
+    assert!(bad_result.is_err());
 }
