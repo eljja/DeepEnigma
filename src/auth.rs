@@ -48,7 +48,6 @@ fn sha256(data: &[u8]) -> Vec<u8> {
 
 /// Prover for the Hash-based Zero-Knowledge Proof of Knowledge.
 #[cfg_attr(feature = "extension-module", pyclass)]
-#[derive(Clone)]
 pub struct ZKPProver {
     psk: Vec<u8>,
     nonce: Vec<u8>,
@@ -64,12 +63,16 @@ impl Drop for ZKPProver {
 }
 
 impl ZKPProver {
-    pub fn new(psk: Vec<u8>) -> Self {
-        Self {
+    /// Minimum PSK length is 16 bytes for adequate security.
+    pub fn new(psk: Vec<u8>) -> AuthResult<Self> {
+        if psk.len() < 16 {
+            return Err(make_err!("PSK must be at least 16 bytes"));
+        }
+        Ok(Self {
             psk,
             nonce: vec![0; 32],
             session_counter: 0,
-        }
+        })
     }
 
     pub fn create_commitment(&mut self) -> Vec<u8> {
@@ -110,7 +113,7 @@ impl ZKPProver {
 #[pymethods]
 impl ZKPProver {
     #[new]
-    pub fn py_new(psk: Vec<u8>) -> Self {
+    pub fn py_new(psk: Vec<u8>) -> AuthResult<Self> {
         Self::new(psk)
     }
 
@@ -138,7 +141,6 @@ impl ZKPProver {
 
 /// Verifier for the Hash-based Zero-Knowledge Proof of Knowledge.
 #[cfg_attr(feature = "extension-module", pyclass)]
-#[derive(Clone)]
 pub struct ZKPVerifier {
     psk: Vec<u8>,
     commitment: Vec<u8>,
@@ -156,13 +158,17 @@ impl Drop for ZKPVerifier {
 }
 
 impl ZKPVerifier {
-    pub fn new(psk: Vec<u8>) -> Self {
-        Self {
+    /// Minimum PSK length is 16 bytes for adequate security.
+    pub fn new(psk: Vec<u8>) -> AuthResult<Self> {
+        if psk.len() < 16 {
+            return Err(make_err!("PSK must be at least 16 bytes"));
+        }
+        Ok(Self {
             psk,
             commitment: vec![],
             challenge: vec![],
             last_seen_counter: 0,
-        }
+        })
     }
 
     pub fn receive_commitment(&mut self, commitment: Vec<u8>) {
@@ -215,7 +221,7 @@ impl ZKPVerifier {
 #[pymethods]
 impl ZKPVerifier {
     #[new]
-    pub fn py_new(psk: Vec<u8>) -> Self {
+    pub fn py_new(psk: Vec<u8>) -> AuthResult<Self> {
         Self::new(psk)
     }
 

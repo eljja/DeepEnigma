@@ -13,7 +13,9 @@ export const run_wasm_key_exchange: (a: number, b: number, c: number, d: number,
 export const wasmetpm_calculate_local_fields: (a: number, b: number, c: number) => [number, number, number, number];
 export const wasmetpm_calculate_output: (a: number, b: number, c: number) => [number, number, number];
 export const wasmetpm_chaotic_transform_flat: (a: number, b: number) => [number, number];
+export const wasmetpm_get_k: (a: number) => number;
 export const wasmetpm_get_l: (a: number) => number;
+export const wasmetpm_get_n: (a: number) => number;
 export const wasmetpm_get_weights_flat: (a: number) => [number, number];
 export const wasmetpm_new: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const wasmetpm_scale_synaptic_depth: (a: number, b: number) => [number, number];

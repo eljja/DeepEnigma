@@ -17,6 +17,15 @@
     --font-space: 'Space Grotesk', sans-serif;
 }
 
+/* Fade-in animation for hero badge */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade {
+    animation: fadeIn 0.8s ease-out both;
+}
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -191,7 +200,9 @@ header {
 .gradient-text {
     background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
+    color: transparent;
 }
 
 .hero-subtitle {

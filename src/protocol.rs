@@ -372,8 +372,8 @@ impl KeyExchange {
 
     /// Orchestrates an authenticated key exchange using a Zero-Knowledge Proof (PSK).
     pub fn authenticated_run(&mut self, psk: Vec<u8>) -> ProtocolResult<KeyExchangeResult> {
-        let mut prover = ZKPProver::new(psk.clone());
-        let mut verifier = ZKPVerifier::new(psk);
+        let mut prover = ZKPProver::new(psk.clone())?;
+        let mut verifier = ZKPVerifier::new(psk)?;
 
         // 1. Commitment Phase
         let commitment = prover.create_commitment();

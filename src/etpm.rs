@@ -62,6 +62,13 @@ impl UpdateRule {
     }
 }
 
+impl core::str::FromStr for UpdateRule {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        UpdateRule::from_str(s).ok_or("invalid update rule: expected 'hebbian', 'antihebbian', or 'randomwalk'")
+    }
+}
+
 #[cfg_attr(feature = "extension-module", pyclass(eq, eq_int))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActivationType {
@@ -82,6 +89,13 @@ impl ActivationType {
             "hybrid" => Some(Self::Hybrid),
             _ => None,
         }
+    }
+}
+
+impl core::str::FromStr for ActivationType {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ActivationType::from_str(s).ok_or("invalid activation type: expected 'standard', 'chaotic', or 'hybrid'")
     }
 }
 

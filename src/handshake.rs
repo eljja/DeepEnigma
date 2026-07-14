@@ -3,6 +3,11 @@
 //! Provides structures and validation logic for Alice and Bob to negotiate
 //! cryptographic E-TPM parameters (K, N, L) and verify protocol version compatibility
 //! before starting key exchange.
+//!
+//! # Security Note
+//! The serialized handshake format does not include a MAC. Integrity protection
+//! is provided by the subsequent ZKP mutual authentication phase, which binds
+//! both parties' commitments to the negotiated parameters.
 
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;

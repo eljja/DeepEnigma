@@ -10,7 +10,9 @@ export class WasmETPM {
     calculate_local_fields(inputs_flat: Int32Array): Int32Array;
     calculate_output(inputs_flat: Int32Array): number;
     chaotic_transform_flat(iterations: number): Int32Array;
+    get_k(): number;
     get_l(): number;
+    get_n(): number;
     get_weights_flat(): Int32Array;
     constructor(k: number, n: number, l: number, activation_type: string);
     scale_synaptic_depth(new_l: number): void;
@@ -48,7 +50,9 @@ export interface InitOutput {
     readonly wasmetpm_calculate_local_fields: (a: number, b: number, c: number) => [number, number, number, number];
     readonly wasmetpm_calculate_output: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmetpm_chaotic_transform_flat: (a: number, b: number) => [number, number];
+    readonly wasmetpm_get_k: (a: number) => number;
     readonly wasmetpm_get_l: (a: number) => number;
+    readonly wasmetpm_get_n: (a: number) => number;
     readonly wasmetpm_get_weights_flat: (a: number) => [number, number];
     readonly wasmetpm_new: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly wasmetpm_scale_synaptic_depth: (a: number, b: number) => [number, number];

@@ -30,7 +30,7 @@ struct Args {
     activation_type: String,
 }
 
-fn parse_args() -> Args {
+fn parse_args() -> Result<Args, String> {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg = Args {
         k: 4,
@@ -47,39 +47,42 @@ fn parse_args() -> Args {
         match args[i].as_str() {
             "--k" => {
                 i += 1;
-                cfg.k = args[i].parse().expect("invalid value for --k");
+                cfg.k = args.get(i).ok_or("--k requires a value")?
+                    .parse().map_err(|e| format!("invalid value for --k: {}", e))?;
             }
             "--n" => {
                 i += 1;
-                cfg.n = args[i].parse().expect("invalid value for --n");
+                cfg.n = args.get(i).ok_or("--n requires a value")?
+                    .parse().map_err(|e| format!("invalid value for --n: {}", e))?;
             }
             "--l" => {
                 i += 1;
-                cfg.l = args[i].parse().expect("invalid value for --l");
+                cfg.l = args.get(i).ok_or("--l requires a value")?
+                    .parse().map_err(|e| format!("invalid value for --l: {}", e))?;
             }
             "--max-rounds" => {
                 i += 1;
-                cfg.max_rounds = args[i].parse().expect("invalid value for --max-rounds");
+                cfg.max_rounds = args.get(i).ok_or("--max-rounds requires a value")?
+                    .parse().map_err(|e| format!("invalid value for --max-rounds: {}", e))?;
             }
             "--rule" => {
                 i += 1;
-                cfg.update_rule = args[i].clone();
+                cfg.update_rule = args.get(i).ok_or("--rule requires a value")?.clone();
             }
             "--activation" => {
                 i += 1;
-                cfg.activation_type = args[i].clone();
+                cfg.activation_type = args.get(i).ok_or("--activation requires a value")?.clone();
             }
             "--benchmark" => {
                 cfg.benchmark = true;
             }
             other => {
-                eprintln!("Unknown argument: {}", other);
-                std::process::exit(1);
+                return Err(format!("Unknown argument: {}", other));
             }
         }
         i += 1;
     }
-    cfg
+    Ok(cfg)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -97,7 +100,7 @@ fn random_inputs(k: usize, n: usize) -> Vec<Vec<i32>> {
 }
 
 /// Derives a 256-bit hex key from a weight matrix using HKDF-SHA256.
-fn derive_key(weights: &[Vec<i32>]) -> String {
+fn derive_key(weights: &[Vec<i32>]) -> Result<String, String> {
     let mut ikm: Vec<u8> = Vec::with_capacity(weights.len() * weights[0].len() * 4);
     for row in weights {
         for &w in row {
@@ -107,9 +110,9 @@ fn derive_key(weights: &[Vec<i32>]) -> String {
     let hk = Hkdf::<Sha256>::new(None, &ikm);
     let info = b"DeepEnigma-Symmetric-Key";
     let mut okm = vec![0u8; 32];
-    hk.expand(info, &mut okm).expect("HKDF expand failed");
+    hk.expand(info, &mut okm).map_err(|e| format!("HKDF expand failed: {}", e))?;
     ikm.zeroize();
-    hex::encode(okm)
+    Ok(hex::encode(okm))
 }
 
 fn print_banner() {
@@ -120,28 +123,32 @@ fn print_banner() {
 
 // ── Key exchange demo ───────────────────────────────────────────────────────
 
-fn run_key_exchange(args: &Args) {
+fn run_key_exchange(args: &Args) -> Result<(), String> {
     print_banner();
     println!();
     println!("Parameters: K={}, N={}, L={}, max_rounds={}", args.k, args.n, args.l, args.max_rounds);
     println!("{}", "─".repeat(54));
 
     let mut alice = ETPM::new(args.k, args.n, args.l, &args.activation_type)
-        .expect("Failed to create Alice's E-TPM");
+        .map_err(|e| format!("Failed to create Alice's E-TPM: {}", e))?;
     let mut bob = ETPM::new(args.k, args.n, args.l, &args.activation_type)
-        .expect("Failed to create Bob's E-TPM");
+        .map_err(|e| format!("Failed to create Bob's E-TPM: {}", e))?;
 
     let start = Instant::now();
     let mut synced = false;
 
     for round in 1..=args.max_rounds {
         let inputs = random_inputs(args.k, args.n);
-        let tau_a = alice.calculate_output(inputs.clone()).expect("Alice calculate_output failed");
-        let tau_b = bob.calculate_output(inputs.clone()).expect("Bob calculate_output failed");
+        let tau_a = alice.calculate_output(inputs.clone())
+            .map_err(|e| format!("Alice calculate_output failed at round {}: {}", round, e))?;
+        let tau_b = bob.calculate_output(inputs.clone())
+            .map_err(|e| format!("Bob calculate_output failed at round {}: {}", round, e))?;
 
         if tau_a == tau_b {
-            alice.update_weights(tau_a, &args.update_rule).expect("Alice update_weights failed");
-            bob.update_weights(tau_b, &args.update_rule).expect("Bob update_weights failed");
+            alice.update_weights(tau_a, &args.update_rule)
+                .map_err(|e| format!("Alice update_weights failed: {}", e))?;
+            bob.update_weights(tau_b, &args.update_rule)
+                .map_err(|e| format!("Bob update_weights failed: {}", e))?;
         }
 
         if round % 500 == 0 {
@@ -167,7 +174,7 @@ fn run_key_exchange(args: &Args) {
             } else {
                 alice.get_weights()
             };
-            let key = derive_key(&final_weights);
+            let key = derive_key(&final_weights)?;
             println!();
             println!("Derived 256-bit key (hex):");
             println!("  {}", key);
@@ -186,35 +193,36 @@ fn run_key_exchange(args: &Args) {
         println!();
         println!("✗ Failed to synchronize within {} rounds ({:.2} s)", args.max_rounds, elapsed.as_secs_f64());
     }
+    Ok(())
 }
 
 // ── Benchmark mode ──────────────────────────────────────────────────────────
 
-fn run_benchmarks(args: &Args) {
+fn run_benchmarks(args: &Args) -> Result<(), String> {
     print_banner();
     println!();
     println!("Benchmark mode — K={}, N={}, L={}", args.k, args.n, args.l);
     println!("{}", "─".repeat(54));
 
     let mut bench = Benchmark::new(args.k, args.n, args.l)
-        .expect("Failed to create benchmark harness");
+        .map_err(|e| format!("Failed to create benchmark harness: {}", e))?;
 
     // calculate_output benchmark
     println!("\n[1/3] Benchmarking calculate_output (10000 iterations)...");
     let res = bench.bench_calculate_output(10_000)
-        .expect("calculate_output benchmark failed");
+        .map_err(|e| format!("calculate_output benchmark failed: {}", e))?;
     print_result(&res);
 
     // update_weights benchmark
     println!("\n[2/3] Benchmarking update_weights (10000 iterations)...");
     let res = bench.bench_update_weights(10_000)
-        .expect("update_weights benchmark failed");
+        .map_err(|e| format!("update_weights benchmark failed: {}", e))?;
     print_result(&res);
 
     // full sync trials
     println!("\n[3/3] Running 5 full synchronization trials...");
     let results = bench.bench_full_sync(5)
-        .expect("full_sync benchmark failed");
+        .map_err(|e| format!("full_sync benchmark failed: {}", e))?;
 
     println!();
     println!("{:<22} {:>10} {:>12} {:>12} {:>14}",
@@ -225,6 +233,7 @@ fn run_benchmarks(args: &Args) {
             r.operation, r.iterations, r.total_time_ms, r.avg_time_us, r.ops_per_sec);
     }
     println!();
+    Ok(())
 }
 
 fn print_result(r: &deep_enigma::benchmark::BenchmarkResult) {
@@ -235,11 +244,22 @@ fn print_result(r: &deep_enigma::benchmark::BenchmarkResult) {
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 fn main() {
-    let args = parse_args();
+    let args = match parse_args() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
-    if args.benchmark {
-        run_benchmarks(&args);
+    let result = if args.benchmark {
+        run_benchmarks(&args)
     } else {
-        run_key_exchange(&args);
+        run_key_exchange(&args)
+    };
+
+    if let Err(e) = result {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
     }
 }

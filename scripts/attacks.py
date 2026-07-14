@@ -69,8 +69,13 @@ class GeometricAttacker:
             for j in range(self.n):
                 w_ij = weights[closest_idx][j]
                 x_ij = x[closest_idx][j]
-                # Update closest_idx as if its output matched target_tau
-                new_w = w_ij + x_ij * target_tau
+                # Apply the correct update rule for the flipped unit
+                if update_rule == "hebbian":
+                    new_w = w_ij + x_ij * target_tau
+                elif update_rule == "antihebbian":
+                    new_w = w_ij - x_ij * target_tau
+                else:  # randomwalk
+                    new_w = w_ij + x_ij
                 weights[closest_idx][j] = max(-self.l, min(self.l, new_w))
             self.etpm.set_weights(weights)
 

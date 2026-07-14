@@ -55,9 +55,23 @@ export class WasmETPM {
     /**
      * @returns {number}
      */
+    get_k() {
+        const ret = wasm.wasmetpm_get_k(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
     get_l() {
         const ret = wasm.wasmetpm_get_l(this.__wbg_ptr);
         return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get_n() {
+        const ret = wasm.wasmetpm_get_n(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {Int32Array}

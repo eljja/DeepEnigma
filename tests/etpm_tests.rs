@@ -125,9 +125,9 @@ fn test_input_validation() {
 
 #[test]
 fn test_zkp_authentication() {
-    let psk = b"supersecretpsk".to_vec();
-    let mut prover = ZKPProver::new(psk.clone());
-    let mut verifier = ZKPVerifier::new(psk);
+    let psk = b"supersecretpsk!!".to_vec(); // 16 bytes minimum
+    let mut prover = ZKPProver::new(psk.clone()).unwrap();
+    let mut verifier = ZKPVerifier::new(psk).unwrap();
 
     // Alice (Prover) creates commitment
     let commitment = prover.create_commitment();
@@ -153,7 +153,7 @@ fn test_zkp_authentication() {
     assert!(replay_success.is_err());
 
     // Verify with incorrect PSK fails
-    let bad_verifier = ZKPVerifier::new(b"wrongpsk".to_vec());
+    let bad_verifier = ZKPVerifier::new(b"wrongpsk_16bytes".to_vec()).unwrap();
     let mut bad_verifier = bad_verifier;
     let new_commitment = prover.create_commitment();
     bad_verifier.receive_commitment(new_commitment);
@@ -386,4 +386,102 @@ fn test_active_query_synchronization() {
         "Active query run rounds: {}, Unfiltered run rounds: {}",
         res_filtered.rounds, res_unfiltered.rounds
     );
+}
+
+// ── M3: Anti-Hebbian Update Rule ───────────────────────────────────────────
+#[test]
+fn test_anti_hebbian_update() {
+    let mut etpm = ETPM::new(2, 10, 4, "standard").unwrap();
+    etpm.initialize_weights(Some(42)).unwrap();
+
+    let inputs: Vec<Vec<i32>> = vec![
+        vec![1, -1, 1, -1, 1, -1, 1, -1, 1, -1],
+        vec![-1, 1, -1, 1, -1, 1, -1, 1, -1, 1],
+    ];
+
+    let weights_before = etpm.get_weights();
+    let tau = etpm.calculate_output(inputs.clone()).unwrap();
+    etpm.update_weights(tau, "antihebbian").unwrap();
+    let weights_after = etpm.get_weights();
+
+    // Anti-Hebbian should change weights in the opposite direction to Hebbian
+    // At least some weights should differ
+    assert_ne!(weights_before, weights_after, "Anti-Hebbian should modify weights");
+
+    // Weights should remain within [-L, L]
+    for row in &weights_after {
+        for &w in row {
+            assert!(w >= -4 && w <= 4, "Weight {} exceeds bounds [-4, 4]", w);
+        }
+    }
+}
+
+// ── M3: Random Walk Update Rule ────────────────────────────────────────────
+#[test]
+fn test_random_walk_update() {
+    let mut etpm = ETPM::new(2, 10, 4, "standard").unwrap();
+    etpm.initialize_weights(Some(42)).unwrap();
+
+    let inputs: Vec<Vec<i32>> = vec![
+        vec![1, -1, 1, -1, 1, -1, 1, -1, 1, -1],
+        vec![-1, 1, -1, 1, -1, 1, -1, 1, -1, 1],
+    ];
+
+    let weights_before = etpm.get_weights();
+    let tau = etpm.calculate_output(inputs.clone()).unwrap();
+    etpm.update_weights(tau, "randomwalk").unwrap();
+    let weights_after = etpm.get_weights();
+
+    // Random Walk adds x_ij directly (no tau multiplication)
+    assert_ne!(weights_before, weights_after, "Random Walk should modify weights");
+
+    // Weights should remain within [-L, L]
+    for row in &weights_after {
+        for &w in row {
+            assert!(w >= -4 && w <= 4, "Weight {} exceeds bounds [-4, 4]", w);
+        }
+    }
+}
+
+// ── M4: calculate_local_fields ─────────────────────────────────────────────
+#[test]
+fn test_calculate_local_fields() {
+    let mut etpm = ETPM::new(2, 5, 3, "standard").unwrap();
+    etpm.initialize_weights(Some(100)).unwrap();
+
+    let inputs: Vec<Vec<i32>> = vec![
+        vec![1, -1, 1, 1, -1],
+        vec![-1, 1, -1, 1, 1],
+    ];
+
+    let fields = etpm.calculate_local_fields(&inputs);
+    assert_eq!(fields.len(), 2, "Should return one field per hidden unit");
+
+    // Manually verify: h_i = sum(w_ij * x_ij)
+    let weights = etpm.get_weights();
+    for i in 0..2 {
+        let expected_h: i32 = (0..5).map(|j| weights[i][j] * inputs[i][j]).sum();
+        assert_eq!(fields[i], expected_h, "Local field for unit {} should match manual calculation", i);
+    }
+}
+
+// ── M4: weight_fingerprint ─────────────────────────────────────────────────
+#[test]
+fn test_weight_fingerprint_deterministic() {
+    let mut etpm = ETPM::new(2, 10, 4, "standard").unwrap();
+    etpm.initialize_weights(Some(42)).unwrap();
+
+    let fp1 = etpm.weight_fingerprint();
+    let fp2 = etpm.weight_fingerprint();
+
+    // Same weights → same fingerprint
+    assert_eq!(fp1, fp2, "Fingerprint should be deterministic");
+    assert_eq!(fp1.len(), 32, "Fingerprint should be SHA-256 (32 bytes)");
+
+    // Changing a weight should change fingerprint
+    let mut weights = etpm.get_weights();
+    weights[0][0] += 1;
+    etpm.set_weights(weights).unwrap();
+    let fp3 = etpm.weight_fingerprint();
+    assert_ne!(fp1, fp3, "Fingerprint should change when weights change");
 }

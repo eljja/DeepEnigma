@@ -27,6 +27,7 @@ pub fn secure_rng() -> ChaCha20Rng {
 }
 
 /// A wrapper struct that implements `RngCore` and `CryptoRng` using `secure_rng()`.
+#[allow(dead_code)]
 pub struct SecureRng {
     inner: ChaCha20Rng,
 }

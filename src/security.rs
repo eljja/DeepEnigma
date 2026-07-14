@@ -305,7 +305,7 @@ fn shannon_entropy(data: &[u8]) -> f64 {
 
     let len = data.len() as f64;
     
-    // Custom log2 implementation for no_std
+    // log2 implementation supporting both std and no_std
     let log2_fn = |x: f64| -> f64 {
         #[cfg(feature = "std")]
         {
@@ -313,7 +313,13 @@ fn shannon_entropy(data: &[u8]) -> f64 {
         }
         #[cfg(not(feature = "std"))]
         {
-            0.0
+            // Integer-based log2 approximation using bit manipulation.
+            // Convert to bits, extract exponent from IEEE 754 representation.
+            let bits = x.to_bits();
+            let exponent = ((bits >> 52) & 0x7FF) as i64 - 1023;
+            let mantissa = (bits & 0x000FFFFFFFFFFFFF) as f64 / (1u64 << 52) as f64;
+            // Linear approximation: log2(x) ≈ exponent + mantissa
+            exponent as f64 + mantissa
         }
     };
 

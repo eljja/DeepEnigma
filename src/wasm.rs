@@ -152,4 +152,12 @@ impl WasmETPM {
     pub fn get_l(&self) -> i32 {
         self.inner.l
     }
+
+    pub fn get_k(&self) -> usize {
+        self.inner.k
+    }
+
+    pub fn get_n(&self) -> usize {
+        self.inner.n
+    }
 }

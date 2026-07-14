@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom Style -->
     <link rel="stylesheet" href="style.css">
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>" type="image/svg+xml">
 </head>
 <body class="lang-ko"> <!-- Defaults to Korean, can toggle to English -->
 
@@ -91,7 +93,7 @@
                             <span>K (은닉 뉴런 수 / Hidden Units)</span>
                             <span class="val" id="val-k">3</span>
                         </label>
-                        <input type="range" id="param-k" min="2" max="6" value="3" step="1">
+                        <input type="range" id="param-k" min="2" max="6" value="3" step="1" aria-label="K parameter: number of hidden units">
                         <p class="param-info">
                             <span class="ko">은닉 뉴런 개수가 증가할수록 공격 복잡도가 지수적으로 커집니다.</span>
                             <span class="en">Higher K exponentially increases cryptographic complexity.</span>
@@ -103,7 +105,7 @@
                             <span>N (입력 크기 / Inputs per Unit)</span>
                             <span class="val" id="val-n">64</span>
                         </label>
-                        <input type="range" id="param-n" min="16" max="128" value="64" step="8">
+                        <input type="range" id="param-n" min="16" max="128" value="64" step="8" aria-label="N parameter: inputs per hidden unit">
                         <p class="param-info">
                             <span class="ko">입력 크기는 가중치 차원 공간의 총 크기를 결정합니다.</span>
                             <span class="en">N defines the total dimension of the weight space.</span>
@@ -115,7 +117,7 @@
                             <span>L (시냅틱 깊이 / Synaptic Depth)</span>
                             <span class="val" id="val-l">6</span>
                         </label>
-                        <input type="range" id="param-l" min="2" max="12" value="6" step="1">
+                        <input type="range" id="param-l" min="2" max="12" value="6" step="1" aria-label="L parameter: synaptic depth">
                         <p class="param-info">
                             <span class="ko">가중치 허용 범위 [-L, L]로, 클수록 기하학적 공격 방어가 쉽습니다.</span>
                             <span class="en">Weight range bound [-L, L] mitigating geometric attacks.</span>
@@ -126,7 +128,7 @@
                         <label for="param-rule">
                             <span class="ko">학습 업데이트 규칙</span><span class="en">Update Rule</span>
                         </label>
-                        <select id="param-rule">
+                        <select id="param-rule" aria-label="Weight update rule">
                             <option value="hebbian">Hebbian (Recommended)</option>
                             <option value="antihebbian">Anti-Hebbian</option>
                             <option value="randomwalk">Random Walk</option>
@@ -137,7 +139,7 @@
                         <label for="param-act">
                             <span class="ko">활성화 함수 모드</span><span class="en">Activation Mode</span>
                         </label>
-                        <select id="param-act">
+                        <select id="param-act" aria-label="Activation function mode">
                             <option value="hybrid">Hybrid (Sign-Sync + Chaotic Key)</option>
                             <option value="standard">Standard (Pure Sign)</option>
                         </select>
@@ -145,7 +147,7 @@
 
                     <div class="control-group">
                         <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="param-active-query-toggle" style="width: auto; margin: 0; cursor: pointer;">
+                            <input type="checkbox" id="param-active-query-toggle" style="width: auto; margin: 0; cursor: pointer;" aria-label="Enable Active Query feedback control">
                             <span class="ko">능동 피드백 제어 (Active Query)</span>
                             <span class="en">Active Query (Feedback Control)</span>
                         </label>
@@ -154,7 +156,7 @@
                                 <span>임계값 H (Threshold H)</span>
                                 <span class="val" id="val-active-query-threshold" style="font-weight: bold; color: #00f2fe;">2</span>
                             </label>
-                            <input type="range" id="param-active-query-threshold" min="0" max="15" value="2" step="1">
+                            <input type="range" id="param-active-query-threshold" min="0" max="15" value="2" step="1" aria-label="Active Query threshold H">
                             <p class="param-info" style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px; line-height: 1.3;">
                                 <span class="ko">경계값 부근의 입력만 선택 전송하여 동기화 속도를 가속화합니다. (0 = 최저 필드)</span>
                                 <span class="en">Filters inputs to boundary fields below H to accelerate synchronization. (0 = lowest field)</span>
@@ -421,7 +423,7 @@
     </footer>
 
     <!-- ChartJS for Simulator Graph -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4"></script>
     <!-- Custom JavaScript -->
     <script type="module" src="app.js"></script>
 </body>
