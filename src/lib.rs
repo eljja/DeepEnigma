@@ -10,6 +10,7 @@ pub mod protocol;
 pub mod rng;
 #[cfg(feature = "std")]
 pub mod security;
+pub mod neural;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod wasm;
 
@@ -23,6 +24,7 @@ pub use protocol::{KeyExchange, KeyExchangeConfig, KeyExchangeResult};
 pub use rng::{secure_rng, SecureRng};
 #[cfg(feature = "std")]
 pub use security::{AttackResult, SecurityAnalyzer};
+pub use neural::{DenseLayer, NeuralNet, Activation, hamming_encode, hamming_decode};
 
 #[cfg(feature = "extension-module")]
 use pyo3::prelude::*;
@@ -51,5 +53,8 @@ fn deep_enigma(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // ZKP Authentication
     m.add_class::<ZKPProver>()?;
     m.add_class::<ZKPVerifier>()?;
+    // Neural Cryptography
+    m.add_class::<neural::PyDenseLayer>()?;
+    m.add_class::<neural::PyNeuralNet>()?;
     Ok(())
 }

@@ -599,6 +599,344 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnReset.addEventListener('click', resetSimulation);
 
+    // ── PART 2: NEURAL ENIGMA SIMULATOR CONTROLLER ───────────────────────────
+
+    // Tab switcher logic
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.getAttribute('data-tab');
+            tabButtons.forEach(b => b.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(targetTab).classList.add('active');
+        });
+    });
+
+    // 16-bit Key selector grid generation
+    const keyGrid = document.getElementById('neural-key-grid');
+    const keyBits = new Array(16).fill(0);
+
+    // Initial key seed setting (e.g. 1010101010101010)
+    for (let i = 0; i < 16; i++) {
+        keyBits[i] = i % 2;
+    }
+
+    function renderKeySelector() {
+        keyGrid.innerHTML = '';
+        for (let i = 0; i < 16; i++) {
+            const btn = document.createElement('button');
+            btn.className = `key-bit-btn ${keyBits[i] ? 'active' : ''}`;
+            btn.textContent = `K${i}: ${keyBits[i]}`;
+            btn.addEventListener('click', () => {
+                keyBits[i] = keyBits[i] ? 0 : 1;
+                btn.className = `key-bit-btn ${keyBits[i] ? 'active' : ''}`;
+                btn.textContent = `K${i}: ${keyBits[i]}`;
+            });
+            keyGrid.appendChild(btn);
+        }
+    }
+    renderKeySelector();
+
+    // Neural Network Weight Loading
+    let loadedWeights = null;
+    fetch('neural_weights.json')
+        .then(res => res.json())
+        .then(data => {
+            loadedWeights = data;
+            console.log('✓ Successfully loaded neural weights.');
+        })
+        .catch(err => {
+            console.warn('Failed to load weights from file, generating pre-trained fallbacks.', err);
+            // Dynamic fallback generator matching python's LCG
+            function makeWeights(outDim, inDim, seed) {
+                let w = [];
+                let b = [];
+                let s = seed;
+                function rand() {
+                    s = (s * 9301 + 49297) % 233280;
+                    return s / 233280.0;
+                }
+                for (let i = 0; i < outDim; i++) {
+                    let row = [];
+                    for (let j = 0; j < inDim; j++) {
+                        row.push(rand() - 0.5);
+                    }
+                    w.push(row);
+                    b.push(rand() - 0.1);
+                }
+                return { weights: w, biases: b };
+            }
+            const a1 = makeWeights(64, 44, 101);
+            const a2 = makeWeights(44, 64, 102);
+            const b1 = makeWeights(64, 60, 201);
+            const b2 = makeWeights(28, 64, 202);
+            loadedWeights = {
+                alice: {
+                    layers: [
+                        { weights: a1.weights, biases: a1.biases, activation: 'relu' },
+                        { weights: a2.weights, biases: a2.biases, activation: 'sigmoid' }
+                    ]
+                },
+                bob: {
+                    layers: [
+                        { weights: b1.weights, biases: b1.biases, activation: 'relu' },
+                        { weights: b2.weights, biases: b2.biases, activation: 'sigmoid' }
+                    ]
+                }
+            };
+        });
+
+    // Hamming(7,4) ECC Helper functions
+    function jsHammingEncode(data) {
+        let out = [];
+        for (let offset = 0; offset < data.length; offset += 4) {
+            let d = data.slice(offset, offset + 4);
+            let d1 = d[0] >= 0.5 ? 1 : 0;
+            let d2 = d[1] >= 0.5 ? 1 : 0;
+            let d3 = d[2] >= 0.5 ? 1 : 0;
+            let d4 = d[3] >= 0.5 ? 1 : 0;
+            let p1 = d1 ^ d2 ^ d4;
+            let p2 = d1 ^ d3 ^ d4;
+            let p3 = d2 ^ d3 ^ d4;
+            out.push(p1, p2, d1, p3, d2, d3, d4);
+        }
+        return out;
+    }
+
+    function jsHammingDecode(codeword) {
+        let out = [];
+        for (let offset = 0; offset < codeword.length; offset += 7) {
+            let bits = codeword.slice(offset, offset + 7).map(x => x >= 0.5 ? 1 : 0);
+            let s1 = bits[0] ^ bits[2] ^ bits[4] ^ bits[6];
+            let s2 = bits[1] ^ bits[2] ^ bits[5] ^ bits[6];
+            let s3 = bits[3] ^ bits[4] ^ bits[5] ^ bits[6];
+            let error_pos = s1 + (s2 << 1) + (s3 << 2);
+            if (error_pos > 0 && error_pos <= 7) {
+                bits[error_pos - 1] ^= 1;
+            }
+            out.push(bits[2], bits[4], bits[5], bits[6]);
+        }
+        return out;
+    }
+
+    // Forward pass layer execution in JS
+    function jsDenseForward(input, layer) {
+        let out = [];
+        for (let i = 0; i < layer.biases.length; i++) {
+            let sum = layer.biases[i];
+            for (let j = 0; j < input.length; j++) {
+                sum += layer.weights[i][j] * input[j];
+            }
+            if (layer.activation === 'relu') {
+                out.push(sum > 0 ? sum : 0);
+            } else if (layer.activation === 'sigmoid') {
+                out.push(1.0 / (1.0 + Math.exp(-sum)));
+            } else if (layer.activation === 'step') {
+                out.push(sum >= 0.5 ? 1 : 0);
+            } else {
+                out.push(sum);
+            }
+        }
+        return out;
+    }
+
+    function jsNetForward(input, layers) {
+        let current = input;
+        for (let i = 0; i < layers.length; i++) {
+            current = jsDenseForward(current, layers[i]);
+        }
+        return current;
+    }
+
+    // Text to 16 bits binary representation
+    function textTo16Bits(text) {
+        let bin = [];
+        const cleanText = text.slice(0, 2).padEnd(2, ' ');
+        for (let i = 0; i < 2; i++) {
+            const charCode = cleanText.charCodeAt(i);
+            for (let b = 7; b >= 0; b--) {
+                bin.push((charCode >> b) & 1);
+            }
+        }
+        return bin;
+    }
+
+    // 16 bits binary representation to Text
+    function bitsToText(bits) {
+        let text = '';
+        for (let offset = 0; offset < bits.length; offset += 8) {
+            let charCode = 0;
+            const slice = bits.slice(offset, offset + 8);
+            for (let b = 0; b < 8; b++) {
+                if (slice[b] >= 0.5) {
+                    charCode |= (1 << (7 - b));
+                }
+            }
+            text += String.fromCharCode(charCode);
+        }
+        return text;
+    }
+
+    // Visualize nodes in container helper
+    function visualizeNodes(containerId, bits) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        bits.forEach((bit, idx) => {
+            const circle = document.createElement('div');
+            circle.className = `node-circle ${bit >= 0.5 ? 'active-one' : 'active-zero'}`;
+            circle.textContent = bit >= 0.5 ? '1' : '0';
+            circle.setAttribute('title', `Node ${idx}: ${bit}`);
+            container.appendChild(circle);
+        });
+    }
+
+    // Trigger run encryption
+    const btnNeuralRun = document.getElementById('btn-neural-run');
+    btnNeuralRun.addEventListener('click', () => {
+        if (!loadedWeights) {
+            alert('Loading neural weights, please wait.');
+            return;
+        }
+
+        const plaintextInput = document.getElementById('neural-plaintext').value;
+        const msgBits = textTo16Bits(plaintextInput);
+
+        // 1. Encode with Hamming(7,4) ECC
+        let encodedBits;
+        if (wasmEngine && wasmInstance) {
+            try {
+                encodedBits = wasmInstance.wasm_hamming_encode(msgBits);
+            } catch (e) {
+                console.warn('WASM ECC failed, falling back to JS.', e);
+                encodedBits = jsHammingEncode(msgBits);
+            }
+        } else {
+            encodedBits = jsHammingEncode(msgBits);
+        }
+
+        // 2. Feed into AliceNet
+        const aliceInput = [...encodedBits, ...keyBits];
+        let cipherFloats;
+
+        if (wasmEngine && wasmInstance) {
+            try {
+                // Initialize WASM network
+                const aliceNet = new wasmInstance.WasmNeuralNet();
+                loadedWeights.alice.layers.forEach(layer => {
+                    const flatWeights = layer.weights.flat();
+                    const outCh = layer.biases.length;
+                    const inCh = flatWeights.length / outCh;
+                    aliceNet.add_layer(flatWeights, layer.biases, outCh, inCh, layer.activation);
+                });
+                cipherFloats = aliceNet.forward(aliceInput);
+            } catch (e) {
+                console.warn('WASM Alice forward failed, falling back to JS.', e);
+                cipherFloats = jsNetForward(aliceInput, loadedWeights.alice.layers);
+            }
+        } else {
+            cipherFloats = jsNetForward(aliceInput, loadedWeights.alice.layers);
+        }
+
+        // Render Alice Nodes (encoded payload + key input visualization)
+        visualizeNodes('neural-alice-nodes', aliceInput);
+
+        // Render Ciphertext floats
+        const cipherContainer = document.getElementById('neural-ciphertext-floats');
+        cipherContainer.innerHTML = '';
+        cipherFloats.forEach(val => {
+            const box = document.createElement('div');
+            box.className = 'cipher-node';
+            box.textContent = val.toFixed(2);
+            cipherContainer.appendChild(box);
+        });
+
+        // 3. Bob Decryption (Correct Key)
+        const bobInput = [...cipherFloats, ...keyBits];
+        let bobDecodedCoded;
+
+        if (wasmEngine && wasmInstance) {
+            try {
+                const bobNet = new wasmInstance.WasmNeuralNet();
+                loadedWeights.bob.layers.forEach(layer => {
+                    const flatWeights = layer.weights.flat();
+                    const outCh = layer.biases.length;
+                    const inCh = flatWeights.length / outCh;
+                    bobNet.add_layer(flatWeights, layer.biases, outCh, inCh, layer.activation);
+                });
+                bobDecodedCoded = bobNet.forward(bobInput);
+            } catch (e) {
+                console.warn('WASM Bob forward failed, falling back to JS.', e);
+                bobDecodedCoded = jsNetForward(bobInput, loadedWeights.bob.layers);
+            }
+        } else {
+            bobDecodedCoded = jsNetForward(bobInput, loadedWeights.bob.layers);
+        }
+
+        // Quantize Bob coded output
+        const bobCodedBits = bobDecodedCoded.map(v => v >= 0.5 ? 1 : 0);
+        visualizeNodes('neural-bob-nodes', bobCodedBits);
+
+        // Bob Decode Hamming(7,4) ECC
+        let bobFinalBits;
+        if (wasmEngine && wasmInstance) {
+            try {
+                bobFinalBits = wasmInstance.wasm_hamming_decode(bobCodedBits);
+            } catch (e) {
+                bobFinalBits = jsHammingDecode(bobCodedBits);
+            }
+        } else {
+            bobFinalBits = jsHammingDecode(bobCodedBits);
+        }
+
+        const bobText = bitsToText(bobFinalBits);
+        document.getElementById('neural-bob-decrypted-text').textContent = `"${bobText}"`;
+
+        // 4. Eve Decryption (No Key - Zero Key)
+        const zeroKey = new Array(16).fill(0);
+        const eveInput = [...cipherFloats, ...zeroKey];
+        let eveDecodedCoded;
+
+        if (wasmEngine && wasmInstance) {
+            try {
+                const eveNet = new wasmInstance.WasmNeuralNet();
+                loadedWeights.bob.layers.forEach(layer => {
+                    const flatWeights = layer.weights.flat();
+                    const outCh = layer.biases.length;
+                    const inCh = flatWeights.length / outCh;
+                    eveNet.add_layer(flatWeights, layer.biases, outCh, inCh, layer.activation);
+                });
+                eveDecodedCoded = eveNet.forward(eveInput);
+            } catch (e) {
+                eveDecodedCoded = jsNetForward(eveInput, loadedWeights.bob.layers);
+            }
+        } else {
+            eveDecodedCoded = jsNetForward(eveInput, loadedWeights.bob.layers);
+        }
+
+        // Quantize Eve coded output
+        const eveCodedBits = eveDecodedCoded.map(v => v >= 0.5 ? 1 : 0);
+        visualizeNodes('neural-eve-nodes', eveCodedBits);
+
+        // Eve Decode Hamming(7,4) ECC
+        let eveFinalBits;
+        if (wasmEngine && wasmInstance) {
+            try {
+                eveFinalBits = wasmInstance.wasm_hamming_decode(eveCodedBits);
+            } catch (e) {
+                eveFinalBits = jsHammingDecode(eveCodedBits);
+            }
+        } else {
+            eveFinalBits = jsHammingDecode(eveCodedBits);
+        }
+
+        const eveText = bitsToText(eveFinalBits);
+        document.getElementById('neural-eve-decrypted-text').textContent = `"${eveText}"`;
+    });
+});
+
     // Initial Reset to setup ETPMs
     resetSimulation();
 });

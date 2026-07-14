@@ -161,3 +161,72 @@ impl WasmETPM {
         self.inner.n
     }
 }
+
+// ── WASM Bindings for Neural Cryptography ────────────────────────────────────
+
+#[wasm_bindgen]
+pub fn wasm_hamming_encode(data: Vec<f64>) -> Vec<f64> {
+    crate::neural::hamming_encode(&data)
+}
+
+#[wasm_bindgen]
+pub fn wasm_hamming_decode(data: Vec<f64>) -> Vec<f64> {
+    crate::neural::hamming_decode(&data)
+}
+
+#[wasm_bindgen]
+pub struct WasmNeuralNet {
+    inner: crate::neural::NeuralNet,
+}
+
+#[wasm_bindgen]
+impl WasmNeuralNet {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: crate::neural::NeuralNet::new(Vec::new()),
+        }
+    }
+
+    /// Adds a dense layer to the network.
+    /// Weights must be passed as a flat array of size `out_channels * in_channels` in row-major order.
+    pub fn add_layer(
+        &mut self,
+        weights_flat: Vec<f64>,
+        biases: Vec<f64>,
+        out_channels: usize,
+        in_channels: usize,
+        act: String,
+    ) -> Result<(), JsValue> {
+        if weights_flat.len() != out_channels * in_channels {
+            return Err(JsValue::from_str("Invalid weights array length: must be out_channels * in_channels"));
+        }
+        if biases.len() != out_channels {
+            return Err(JsValue::from_str("Invalid biases array length: must equal out_channels"));
+        }
+
+        let activation = match act.to_lowercase().as_str() {
+            "linear" => crate::neural::Activation::Linear,
+            "relu" => crate::neural::Activation::ReLU,
+            "sigmoid" => crate::neural::Activation::Sigmoid,
+            "step" => crate::neural::Activation::Step,
+            _ => return Err(JsValue::from_str("Invalid activation function name")),
+        };
+
+        let mut weights = vec![vec![0.0; in_channels]; out_channels];
+        for i in 0..out_channels {
+            for j in 0..in_channels {
+                weights[i][j] = weights_flat[i * in_channels + j];
+            }
+        }
+
+        let dense = crate::neural::DenseLayer::new(weights, biases, activation);
+        self.inner.layers.push(dense);
+        Ok(())
+    }
+
+    pub fn forward(&self, input: Vec<f64>) -> Vec<f64> {
+        self.inner.forward(&input)
+    }
+}
+

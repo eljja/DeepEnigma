@@ -751,3 +751,264 @@ footer {
 .footer-links a:hover {
     color: var(--primary);
 }
+
+.footer-links a {
+    color: var(--text-main);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.footer-links a:hover {
+    color: var(--primary);
+}
+
+/* ── Tab Switcher & Part 2 Styles ─────────────────────────────────────────── */
+
+.tabs-container {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.tab-button {
+    background: rgba(13, 20, 35, 0.6);
+    border: 1px solid var(--card-border);
+    color: var(--text-muted);
+    padding: 12px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 30px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tab-button:hover {
+    color: var(--text-main);
+    border-color: rgba(0, 242, 254, 0.4);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.1);
+}
+
+.tab-button.active {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    color: #07090e;
+    border: none;
+    box-shadow: 0 0 15px var(--primary-glow);
+}
+
+.tab-content {
+    display: none;
+    animation: fadeIn 0.5s ease-out;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Neural Enigma Layout */
+.neural-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.8fr;
+    gap: 24px;
+}
+
+@media (max-width: 968px) {
+    .neural-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Key Bit Selector Grid */
+.key-bit-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.key-bit-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--card-border);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: bold;
+    padding: 8px 0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.key-bit-btn.active {
+    background-color: var(--primary);
+    color: #07090e;
+    border-color: var(--primary);
+    box-shadow: 0 0 8px var(--primary-glow);
+}
+
+/* Visualizer Flows */
+.flow-diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-top: 16px;
+}
+
+.flow-step {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.flow-step.alice-flow {
+    border-left: 4px solid var(--primary);
+}
+
+.flow-step.bob-flow {
+    border-left: 4px solid var(--green-accent);
+}
+
+.flow-step.eve-flow {
+    border-left: 4px solid var(--red-accent);
+}
+
+.flow-title {
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.flow-title .badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.alice-flow .badge { background: var(--primary-glow); color: var(--primary); }
+.bob-flow .badge { background: rgba(0, 245, 160, 0.15); color: var(--green-accent); }
+.eve-flow .badge { background: rgba(255, 75, 92, 0.15); color: var(--red-accent); }
+
+/* Node visualization representation */
+.node-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.node-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.node-circle {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: var(--text-muted);
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+
+.node-circle.active-one {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #07090e;
+    box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.node-circle.active-zero {
+    background: rgba(0, 242, 254, 0.2);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.bob-flow .node-circle.active-one {
+    background: var(--green-accent);
+    border-color: var(--green-accent);
+    color: #07090e;
+    box-shadow: 0 0 6px rgba(0, 245, 160, 0.3);
+}
+
+.bob-flow .node-circle.active-zero {
+    background: rgba(0, 245, 160, 0.15);
+    border-color: var(--green-accent);
+    color: var(--green-accent);
+}
+
+.eve-flow .node-circle.active-one {
+    background: var(--red-accent);
+    border-color: var(--red-accent);
+    color: #f3f4f6;
+    box-shadow: 0 0 6px rgba(255, 75, 92, 0.3);
+}
+
+.eve-flow .node-circle.active-zero {
+    background: rgba(255, 75, 92, 0.15);
+    border-color: var(--red-accent);
+    color: var(--red-accent);
+}
+
+/* Float value nodes representing ciphertext */
+.ciphertext-container {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+}
+
+.cipher-node {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    min-width: 44px;
+    text-align: center;
+}
+
+.flow-arrow {
+    display: flex;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: -8px 0;
+}
+
+.decrypted-text-display {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-family: var(--font-space);
+    font-weight: 500;
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.decrypted-text-display span:first-child {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.decrypted-text-display span:last-child {
+    font-weight: bold;
+    color: var(--text-main);
+}

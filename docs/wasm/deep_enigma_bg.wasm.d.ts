@@ -9,7 +9,10 @@ export const __wbg_set_wasmkeyexchangeresult_success: (a: number, b: number) => 
 export const __wbg_set_wasmkeyexchangeresult_sync_time_ms: (a: number, b: number) => void;
 export const __wbg_wasmetpm_free: (a: number, b: number) => void;
 export const __wbg_wasmkeyexchangeresult_free: (a: number, b: number) => void;
+export const __wbg_wasmneuralnet_free: (a: number, b: number) => void;
 export const run_wasm_key_exchange: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+export const wasm_hamming_decode: (a: number, b: number) => [number, number];
+export const wasm_hamming_encode: (a: number, b: number) => [number, number];
 export const wasmetpm_calculate_local_fields: (a: number, b: number, c: number) => [number, number, number, number];
 export const wasmetpm_calculate_output: (a: number, b: number, c: number) => [number, number, number];
 export const wasmetpm_chaotic_transform_flat: (a: number, b: number) => [number, number];
@@ -21,6 +24,9 @@ export const wasmetpm_new: (a: number, b: number, c: number, d: number, e: numbe
 export const wasmetpm_scale_synaptic_depth: (a: number, b: number) => [number, number];
 export const wasmetpm_update_weights: (a: number, b: number, c: number, d: number) => [number, number];
 export const wasmkeyexchangeresult_key_hex: (a: number) => [number, number];
+export const wasmneuralnet_add_layer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
+export const wasmneuralnet_forward: (a: number, b: number, c: number) => [number, number];
+export const wasmneuralnet_new: () => number;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;

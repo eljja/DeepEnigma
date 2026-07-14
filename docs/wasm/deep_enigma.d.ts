@@ -29,10 +29,26 @@ export class WasmKeyExchangeResult {
     readonly key_hex: string;
 }
 
+export class WasmNeuralNet {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Adds a dense layer to the network.
+     * Weights must be passed as a flat array of size `out_channels * in_channels` in row-major order.
+     */
+    add_layer(weights_flat: Float64Array, biases: Float64Array, out_channels: number, in_channels: number, act: string): void;
+    forward(input: Float64Array): Float64Array;
+    constructor();
+}
+
 /**
  * Runs a full Alice-Bob key exchange simulation from the browser.
  */
 export function run_wasm_key_exchange(k: number, n: number, l: number, max_rounds: number, update_rule: string, activation_type: string, adaptive_l_scaling: boolean, active_query_threshold: number): WasmKeyExchangeResult;
+
+export function wasm_hamming_decode(data: Float64Array): Float64Array;
+
+export function wasm_hamming_encode(data: Float64Array): Float64Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -46,7 +62,10 @@ export interface InitOutput {
     readonly __wbg_set_wasmkeyexchangeresult_sync_time_ms: (a: number, b: number) => void;
     readonly __wbg_wasmetpm_free: (a: number, b: number) => void;
     readonly __wbg_wasmkeyexchangeresult_free: (a: number, b: number) => void;
+    readonly __wbg_wasmneuralnet_free: (a: number, b: number) => void;
     readonly run_wasm_key_exchange: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly wasm_hamming_decode: (a: number, b: number) => [number, number];
+    readonly wasm_hamming_encode: (a: number, b: number) => [number, number];
     readonly wasmetpm_calculate_local_fields: (a: number, b: number, c: number) => [number, number, number, number];
     readonly wasmetpm_calculate_output: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmetpm_chaotic_transform_flat: (a: number, b: number) => [number, number];
@@ -58,6 +77,9 @@ export interface InitOutput {
     readonly wasmetpm_scale_synaptic_depth: (a: number, b: number) => [number, number];
     readonly wasmetpm_update_weights: (a: number, b: number, c: number, d: number) => [number, number];
     readonly wasmkeyexchangeresult_key_hex: (a: number) => [number, number];
+    readonly wasmneuralnet_add_layer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
+    readonly wasmneuralnet_forward: (a: number, b: number, c: number) => [number, number];
+    readonly wasmneuralnet_new: () => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

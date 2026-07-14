@@ -81,175 +81,301 @@
                 </p>
             </div>
 
-            <!-- SIMULATOR CONTROL & VIEWER -->
-            <div class="sim-grid">
-                <!-- Controls Panel -->
-                <div class="glass-card sim-controls">
-                    <h3>
-                        <i class="fa-solid fa-sliders"></i> <span class="ko">파라미터 조절</span><span class="en">Configuration</span>
-                    </h3>
-                    <div class="control-group">
-                        <label for="param-k">
-                            <span>K (은닉 뉴런 수 / Hidden Units)</span>
-                            <span class="val" id="val-k">3</span>
-                        </label>
-                        <input type="range" id="param-k" min="2" max="6" value="3" step="1" aria-label="K parameter: number of hidden units">
-                        <p class="param-info">
-                            <span class="ko">은닉 뉴런 개수가 증가할수록 공격 복잡도가 지수적으로 커집니다.</span>
-                            <span class="en">Higher K exponentially increases cryptographic complexity.</span>
-                        </p>
-                    </div>
+            <!-- TABS MENU -->
+            <div class="tabs-container">
+                <button class="tab-button active" data-tab="tab-etpm" aria-label="Switch to E-TPM Key Exchange Simulator">
+                    <i class="fa-solid fa-network-wired"></i> <span class="ko">E-TPM 키 교환</span><span class="en">E-TPM Key Exchange</span>
+                </button>
+                <button class="tab-button" data-tab="tab-neural" aria-label="Switch to Neural Cryptography Simulator">
+                    <i class="fa-solid fa-brain"></i> <span class="ko">신경망 암복호화 (NeuralEnigma)</span><span class="en">Neural Encryption (NeuralEnigma)</span>
+                </button>
+            </div>
 
-                    <div class="control-group">
-                        <label for="param-n">
-                            <span>N (입력 크기 / Inputs per Unit)</span>
-                            <span class="val" id="val-n">64</span>
-                        </label>
-                        <input type="range" id="param-n" min="16" max="128" value="64" step="8" aria-label="N parameter: inputs per hidden unit">
-                        <p class="param-info">
-                            <span class="ko">입력 크기는 가중치 차원 공간의 총 크기를 결정합니다.</span>
-                            <span class="en">N defines the total dimension of the weight space.</span>
-                        </p>
-                    </div>
-
-                    <div class="control-group">
-                        <label for="param-l">
-                            <span>L (시냅틱 깊이 / Synaptic Depth)</span>
-                            <span class="val" id="val-l">6</span>
-                        </label>
-                        <input type="range" id="param-l" min="2" max="12" value="6" step="1" aria-label="L parameter: synaptic depth">
-                        <p class="param-info">
-                            <span class="ko">가중치 허용 범위 [-L, L]로, 클수록 기하학적 공격 방어가 쉽습니다.</span>
-                            <span class="en">Weight range bound [-L, L] mitigating geometric attacks.</span>
-                        </p>
-                    </div>
-
-                    <div class="control-group">
-                        <label for="param-rule">
-                            <span class="ko">학습 업데이트 규칙</span><span class="en">Update Rule</span>
-                        </label>
-                        <select id="param-rule" aria-label="Weight update rule">
-                            <option value="hebbian">Hebbian (Recommended)</option>
-                            <option value="antihebbian">Anti-Hebbian</option>
-                            <option value="randomwalk">Random Walk</option>
-                        </select>
-                    </div>
-
-                    <div class="control-group">
-                        <label for="param-act">
-                            <span class="ko">활성화 함수 모드</span><span class="en">Activation Mode</span>
-                        </label>
-                        <select id="param-act" aria-label="Activation function mode">
-                            <option value="hybrid">Hybrid (Sign-Sync + Chaotic Key)</option>
-                            <option value="standard">Standard (Pure Sign)</option>
-                        </select>
-                    </div>
-
-                    <div class="control-group">
-                        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="param-active-query-toggle" style="width: auto; margin: 0; cursor: pointer;" aria-label="Enable Active Query feedback control">
-                            <span class="ko">능동 피드백 제어 (Active Query)</span>
-                            <span class="en">Active Query (Feedback Control)</span>
-                        </label>
-                        <div id="active-query-threshold-container" style="margin-top: 12px; display: none;">
-                            <label for="param-active-query-threshold" style="display: flex; justify-content: space-between; align-items: center;">
-                                <span>임계값 H (Threshold H)</span>
-                                <span class="val" id="val-active-query-threshold" style="font-weight: bold; color: #00f2fe;">2</span>
+            <!-- TAB 1: E-TPM -->
+            <div id="tab-etpm" class="tab-content active">
+                <div class="sim-grid">
+                    <!-- Controls Panel -->
+                    <div class="glass-card sim-controls">
+                        <h3>
+                            <i class="fa-solid fa-sliders"></i> <span class="ko">파라미터 조절</span><span class="en">Configuration</span>
+                        </h3>
+                        <div class="control-group">
+                            <label for="param-k">
+                                <span>K (은닉 뉴런 수 / Hidden Units)</span>
+                                <span class="val" id="val-k">3</span>
                             </label>
-                            <input type="range" id="param-active-query-threshold" min="0" max="15" value="2" step="1" aria-label="Active Query threshold H">
-                            <p class="param-info" style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px; line-height: 1.3;">
-                                <span class="ko">경계값 부근의 입력만 선택 전송하여 동기화 속도를 가속화합니다. (0 = 최저 필드)</span>
-                                <span class="en">Filters inputs to boundary fields below H to accelerate synchronization. (0 = lowest field)</span>
+                            <input type="range" id="param-k" min="2" max="6" value="3" step="1" aria-label="K parameter: number of hidden units">
+                            <p class="param-info">
+                                <span class="ko">은닉 뉴런 개수가 증가할수록 공격 복잡도가 지수적으로 커집니다.</span>
+                                <span class="en">Higher K exponentially increases cryptographic complexity.</span>
                             </p>
                         </div>
-                    </div>
 
-                    <div class="sim-buttons">
-                        <button id="btn-start" class="btn-start">
-                            <i class="fa-solid fa-play"></i> <span class="ko">동기화 시작</span><span class="en">Start Sync</span>
-                        </button>
-                        <button id="btn-reset" class="btn-reset">
-                            <i class="fa-solid fa-rotate-right"></i> <span class="ko">초기화</span><span class="en">Reset</span>
-                        </button>
-                    </div>
-                </div>
+                        <div class="control-group">
+                            <label for="param-n">
+                                <span>N (입력 크기 / Inputs per Unit)</span>
+                                <span class="val" id="val-n">64</span>
+                            </label>
+                            <input type="range" id="param-n" min="16" max="128" value="64" step="8" aria-label="N parameter: inputs per hidden unit">
+                            <p class="param-info">
+                                <span class="ko">입력 크기는 가중치 차원 공간의 총 크기를 결정합니다.</span>
+                                <span class="en">N defines the total dimension of the weight space.</span>
+                            </p>
+                        </div>
 
-                <!-- Simulation Visualizer -->
-                <div class="glass-card sim-visualizer">
-                    <div class="vis-header">
-                        <div class="status-indicator" id="sync-status">
-                            <span class="indicator-dot"></span>
-                            <span class="status-text ko">대기 중</span>
-                            <span class="status-text en">Ready</span>
+                        <div class="control-group">
+                            <label for="param-l">
+                                <span>L (시냅틱 깊이 / Synaptic Depth)</span>
+                                <span class="val" id="val-l">6</span>
+                            </label>
+                            <input type="range" id="param-l" min="2" max="12" value="6" step="1" aria-label="L parameter: synaptic depth">
+                            <p class="param-info">
+                                <span class="ko">가중치 허용 범위 [-L, L]로, 클수록 기하학적 공격 방어가 쉽습니다.</span>
+                                <span class="en">Weight range bound [-L, L] mitigating geometric attacks.</span>
+                            </p>
                         </div>
-                        <div class="engine-badge" id="engine-status">
-                            <span class="ko">⚙️ 로딩 중</span><span class="en">⚙️ Loading</span>
-                        </div>
-                        <div class="round-counter">
-                            <span class="ko">라운드: </span><span class="en">Round: </span><span id="lbl-rounds">0</span>
-                        </div>
-                    </div>
 
-                    <div class="visualizer-content">
-                        <!-- Overlap Progress Bar -->
-                        <div class="overlap-container">
-                            <div class="overlap-header">
-                                <span class="ko">가중치 일치도 (Alice ↔ Bob)</span>
-                                <span class="en">Weight Alignment (Alice ↔ Bob)</span>
-                                <span class="overlap-val" id="lbl-overlap">0.0%</span>
+                        <div class="control-group">
+                            <label for="param-rule">
+                                <span class="ko">학습 업데이트 규칙</span><span class="en">Update Rule</span>
+                            </label>
+                            <select id="param-rule" aria-label="Weight update rule">
+                                <option value="hebbian">Hebbian (Recommended)</option>
+                                <option value="antihebbian">Anti-Hebbian</option>
+                                <option value="randomwalk">Random Walk</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="param-act">
+                                <span class="ko">활성화 함수 모드</span><span class="en">Activation Mode</span>
+                            </label>
+                            <select id="param-act" aria-label="Activation function mode">
+                                <option value="hybrid">Hybrid (Sign-Sync + Chaotic Key)</option>
+                                <option value="standard">Standard (Pure Sign)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="param-active-query-toggle" style="width: auto; margin: 0; cursor: pointer;" aria-label="Enable Active Query feedback control">
+                                <span class="ko">능동 피드백 제어 (Active Query)</span>
+                                <span class="en">Active Query (Feedback Control)</span>
+                            </label>
+                            <div id="active-query-threshold-container" style="margin-top: 12px; display: none;">
+                                <label for="param-active-query-threshold" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span>임계값 H (Threshold H)</span>
+                                    <span class="val" id="val-active-query-threshold" style="font-weight: bold; color: #00f2fe;">2</span>
+                                </label>
+                                <input type="range" id="param-active-query-threshold" min="0" max="15" value="2" step="1" aria-label="Active Query threshold H">
+                                <p class="param-info" style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px; line-height: 1.3;">
+                                    <span class="ko">경계값 부근의 입력만 선택 전송하여 동기화 속도를 가속화합니다. (0 = 최저 필드)</span>
+                                    <span class="en">Filters inputs to boundary fields below H to accelerate synchronization. (0 = lowest field)</span>
+                                </p>
                             </div>
-                            <div class="progress-track">
-                                <div class="progress-bar" id="bar-overlap" style="width: 0%;"></div>
+                        </div>
+
+                        <div class="sim-buttons">
+                            <button id="btn-start" class="btn-start">
+                                <i class="fa-solid fa-play"></i> <span class="ko">동기화 시작</span><span class="en">Start Sync</span>
+                            </button>
+                            <button id="btn-reset" class="btn-reset">
+                                <i class="fa-solid fa-rotate-right"></i> <span class="ko">초기화</span><span class="en">Reset</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Simulation Visualizer -->
+                    <div class="glass-card sim-visualizer">
+                        <div class="vis-header">
+                            <div class="status-indicator" id="sync-status">
+                                <span class="indicator-dot"></span>
+                                <span class="status-text ko">대기 중</span>
+                                <span class="status-text en">Ready</span>
+                            </div>
+                            <div class="engine-badge" id="engine-status">
+                                <span class="ko">⚙️ 로딩 중</span><span class="en">⚙️ Loading</span>
+                            </div>
+                            <div class="round-counter">
+                                <span class="ko">라운드: </span><span class="en">Round: </span><span id="lbl-rounds">0</span>
                             </div>
                         </div>
 
-                        <!-- Real-time weight difference graphs -->
-                        <div class="graph-container">
-                            <canvas id="sync-chart" width="400" height="150"></canvas>
-                        </div>
-
-                        <!-- Participants Comparison -->
-                        <div class="parties-container">
-                            <div class="party-box alice-box">
-                                <div class="party-title"><i class="fa-solid fa-user-shield"></i> Alice</div>
-                                <div class="party-details">
-                                    <div><span class="ko">출력 τ_A:</span><span class="en">Output τ_A:</span> <span id="out-alice">-</span></div>
-                                    <div><span class="ko">가중치 합:</span><span class="en">Weight Sum:</span> <span id="wsum-alice">-</span></div>
+                        <div class="visualizer-content">
+                            <!-- Overlap Progress Bar -->
+                            <div class="overlap-container">
+                                <div class="overlap-header">
+                                    <span class="ko">가중치 일치도 (Alice ↔ Bob)</span>
+                                    <span class="en">Weight Alignment (Alice ↔ Bob)</span>
+                                    <span class="overlap-val" id="lbl-overlap">0.0%</span>
+                                </div>
+                                <div class="progress-track">
+                                    <div class="progress-bar" id="bar-overlap" style="width: 0%;"></div>
                                 </div>
                             </div>
-                            <div class="party-box bob-box">
-                                <div class="party-title"><i class="fa-solid fa-user-shield"></i> Bob</div>
-                                <div class="party-details">
-                                    <div><span class="ko">출력 τ_B:</span><span class="en">Output τ_B:</span> <span id="out-bob">-</span></div>
-                                    <div><span class="ko">가중치 합:</span><span class="en">Weight Sum:</span> <span id="wsum-bob">-</span></div>
-                                </div>
-                            </div>
-                            <div class="party-box eve-box">
-                                <div class="party-title"><i class="fa-solid fa-user-ninja"></i> Eve (Eavesdropper)</div>
-                                <div class="party-details">
-                                    <div><span class="ko">출력 τ_E:</span><span class="en">Output τ_E:</span> <span id="out-eve">-</span></div>
-                                    <div><span class="ko">가중치 괴리:</span><span class="en">Weight Diff:</span> <span id="diff-eve">-</span></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
-                    <!-- Derived Key Panel -->
-                    <div class="key-panel hidden" id="key-panel">
-                        <div class="key-header">
-                            <span class="ko"><i class="fa-solid fa-key"></i> 동기화 완료: 256비트 대칭키 도출</span>
-                            <span class="en"><i class="fa-solid fa-key"></i> Sync Complete: 256-bit Symmetric Key Derived</span>
+                            <!-- Real-time weight difference graphs -->
+                            <div class="graph-container">
+                                <canvas id="sync-chart" width="400" height="150"></canvas>
+                            </div>
+
+                            <!-- Participants Comparison -->
+                            <div class="parties-container">
+                                <div class="party-box alice-box">
+                                    <div class="party-title"><i class="fa-solid fa-user-shield"></i> Alice</div>
+                                    <div class="party-details">
+                                        <div><span class="ko">출력 τ_A:</span><span class="en">Output τ_A:</span> <span id="out-alice">-</span></div>
+                                        <div><span class="ko">가중치 합:</span><span class="en">Weight Sum:</span> <span id="wsum-alice">-</span></div>
+                                    </div>
+                                </div>
+                                <div class="party-box bob-box">
+                                    <div class="party-title"><i class="fa-solid fa-user-shield"></i> Bob</div>
+                                    <div class="party-details">
+                                        <div><span class="ko">출력 τ_B:</span><span class="en">Output τ_B:</span> <span id="out-bob">-</span></div>
+                                        <div><span class="ko">가중치 합:</span><span class="en">Weight Sum:</span> <span id="wsum-bob">-</span></div>
+                                    </div>
+                                </div>
+                                <div class="party-box eve-box">
+                                    <div class="party-title"><i class="fa-solid fa-user-ninja"></i> Eve (Eavesdropper)</div>
+                                    <div class="party-details">
+                                        <div><span class="ko">출력 τ_E:</span><span class="en">Output τ_E:</span> <span id="out-eve">-</span></div>
+                                        <div><span class="ko">가중치 괴리:</span><span class="en">Weight Diff:</span> <span id="diff-eve">-</span></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="key-output" id="key-output">
-                            ----------------- Key Generating -----------------
-                        </div>
-                        <div class="key-note">
-                            <span class="ko">※ Hybrid 모드 활성화로, 동기화된 정수 가중치에 물리적 결정성 카오스 텐트 맵(Chaotic Tent Map) 100회 연산을 적용한 후 SHA-256 해시를 수행했습니다. (플랫폼 무관 동일 키 보장)</span>
-                            <span class="en">* In Hybrid mode, the derived key is the SHA-256 hash of the synchronized weights passed through 100 iterations of a platform-independent integer chaotic Tent Map.</span>
+
+                        <!-- Derived Key Panel -->
+                        <div class="key-panel hidden" id="key-panel">
+                            <div class="key-header">
+                                <span class="ko"><i class="fa-solid fa-key"></i> 동기화 완료: 256비트 대칭키 도출</span>
+                                <span class="en"><i class="fa-solid fa-key"></i> Sync Complete: 256-bit Symmetric Key Derived</span>
+                            </div>
+                            <div class="key-output" id="key-output">
+                                ----------------- Key Generating -----------------
+                            </div>
+                            <div class="key-note">
+                                <span class="ko">※ Hybrid 모드 활성화로, 동기화된 정수 가중치에 물리적 결정성 카오스 텐트 맵(Chaotic Tent Map) 100회 연산을 적용한 후 SHA-256 해시를 수행했습니다. (플랫폼 무관 동일 키 보장)</span>
+                                <span class="en">* In Hybrid mode, the derived key is the SHA-256 hash of the synchronized weights passed through 100 iterations of a platform-independent integer chaotic Tent Map.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <!-- TAB 2: NEURAL ENIGMA -->
+            <div id="tab-neural" class="tab-content">
+                <div class="neural-grid">
+                    <!-- Left: Control Panel -->
+                    <div class="glass-card">
+                        <h3>
+                            <i class="fa-solid fa-key"></i> <span class="ko">메시지 & 대칭키 구성</span><span class="en">Message & Key Config</span>
+                        </h3>
+                        <div class="control-group">
+                            <label for="neural-plaintext">
+                                <span class="ko">평문 메시지 입력 (최대 2글자 ASCII)</span>
+                                <span class="en">Plaintext Message (Max 2 chars ASCII)</span>
+                            </label>
+                            <input type="text" id="neural-plaintext" maxlength="2" value="OK" placeholder="OK" style="font-family: monospace; font-size: 16px; font-weight: bold; text-align: center; text-transform: uppercase;">
+                            <p class="param-info">
+                                <span class="ko">입력한 문자열은 바이너리(16비트)로 변환된 후 Hamming(7,4) ECC를 거쳐 28비트로 인코딩됩니다.</span>
+                                <span class="en">The input string is converted to binary (16 bits) and encoded to 28 bits via Hamming(7,4) ECC.</span>
+                            </p>
+                        </div>
+
+                        <div class="control-group">
+                            <label>
+                                <span class="ko">16비트 대칭키 선택 (클릭하여 설정)</span>
+                                <span class="en">16-bit Shared Symmetric Key (Click to toggle)</span>
+                            </label>
+                            <div class="key-bit-grid" id="neural-key-grid">
+                                <!-- 16 button toggles generated dynamically by JS -->
+                            </div>
+                            <p class="param-info" style="margin-top: 8px;">
+                                <span class="ko">Alice와 Bob은 이 대칭키를 공유합니다. Eve는 이 대칭키 정보가 없습니다.</span>
+                                <span class="en">Alice and Bob share this symmetric key. Eve has no access to it.</span>
+                            </p>
+                        </div>
+
+                        <div class="sim-buttons" style="margin-top: 24px;">
+                            <button id="btn-neural-run" class="btn-start" style="width: 100%;">
+                                <i class="fa-solid fa-lock"></i> <span class="ko">신경망 암복호화 실행</span><span class="en">Run Neural Cryptography</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Right: Visualizer Flows -->
+                    <div class="glass-card">
+                        <h3>
+                            <i class="fa-solid fa-route"></i> <span class="ko">신경망 신호 흐름 시각화</span><span class="en">Neural Signal Flow</span>
+                        </h3>
+
+                        <div class="flow-diagram">
+                            <!-- Step 1: Alice (Encryption Network) -->
+                            <div class="flow-step alice-flow">
+                                <div class="flow-title">
+                                    <span>Alice (Encryption Network — Deep Residual)</span>
+                                    <span class="badge">Encrypting</span>
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                                    Input vector (28-bit payload + 16-bit Key) fed to Alice. Layer activations computed:
+                                </div>
+                                <div class="node-row" id="neural-alice-nodes">
+                                    <!-- Dynamic node lights -->
+                                </div>
+                                <div style="margin-top: 12px; font-size: 12px; font-weight: bold; color: var(--primary);">
+                                    Ciphertext Output (44 Continuous Floats):
+                                </div>
+                                <div class="ciphertext-container" id="neural-ciphertext-floats">
+                                    <!-- Float boxes -->
+                                </div>
+                            </div>
+
+                            <div class="flow-arrow"><i class="fa-solid fa-arrow-down-long"></i></div>
+
+                            <!-- Step 2: Bob (Decryption Network) -->
+                            <div class="flow-step bob-flow">
+                                <div class="flow-title">
+                                    <span>Bob (Decryption Network — Shallow Layer)</span>
+                                    <span class="badge" id="bob-status-badge" style="background: rgba(0, 245, 160, 0.15); color: var(--green-accent);">Bob Key: MATCH</span>
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                                    Bob feeds ciphertext + correct Shared Key into BobNet. Quantizes outputs and runs Hamming(7,4) ECC:
+                                </div>
+                                <div class="node-row" id="neural-bob-nodes">
+                                    <!-- Dynamic node lights -->
+                                </div>
+                                <div class="decrypted-text-display">
+                                    <span>Reconstructed Plaintext:</span>
+                                    <span id="neural-bob-decrypted-text">"OK"</span>
+                                </div>
+                            </div>
+
+                            <div class="flow-arrow"><i class="fa-solid fa-arrow-down-long"></i></div>
+
+                            <!-- Step 3: Eve (Eavesdropping Network) -->
+                            <div class="flow-step eve-flow">
+                                <div class="flow-title">
+                                    <span>Eve (Eavesdropping Attacker Network)</span>
+                                    <span class="badge" style="background: rgba(255, 75, 92, 0.15); color: var(--red-accent);">Key: NO KEY (MOCK/ZERO)</span>
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                                    Eve intercepts ciphertext but has no key. Feeds ciphertext into EveNet to attempt recovery:
+                                </div>
+                                <div class="node-row" id="neural-eve-nodes">
+                                    <!-- Dynamic node lights -->
+                                </div>
+                                <div class="decrypted-text-display" style="border-top: 1px solid rgba(255,75,92,0.2);">
+                                    <span>Attacked Plaintext Recovery:</span>
+                                    <span id="neural-eve-decrypted-text" style="color: var(--red-accent);">"##"</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
         </div>
     </section>
 
