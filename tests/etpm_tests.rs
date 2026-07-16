@@ -485,3 +485,59 @@ fn test_weight_fingerprint_deterministic() {
     let fp3 = etpm.weight_fingerprint();
     assert_ne!(fp1, fp3, "Fingerprint should change when weights change");
 }
+
+// ── Part 1 to Part 2 Integration: Key Bridging ─────────────────────────────
+#[test]
+fn test_etpm_key_bridging_to_neural() {
+    use deep_enigma::{KeyExchange, KeyExchangeConfig, hamming_encode, hamming_decode};
+    use deep_enigma::neural::{DenseLayer, Activation};
+
+    // 1. Perform a mock E-TPM Key exchange
+    let config = KeyExchangeConfig::new(
+        2,
+        16,
+        3,
+        1000,
+        "hebbian".to_string(),
+        "standard".to_string(),
+        10,
+        false,
+    );
+    let mut exchange = KeyExchange::new(&config).unwrap();
+    let res = exchange.run().unwrap();
+    
+    // Key exchange should succeed and yield a hex key
+    assert!(res.success);
+    assert_eq!(res.key_hex.len(), 64);
+
+    // 2. Extract the 16-bit Neural session key from the E-TPM derived key
+    let session_key = res.extract_session_key().unwrap();
+    assert_eq!(session_key.len(), 16);
+
+    // 3. Encrypt plain text bits using the extracted key
+    let original_payload = vec![1.0, 0.0, 1.0, 1.0]; // 4 bits
+    let encoded_payload = hamming_encode(&original_payload); // 7 bits
+
+    // Prepare Alice Input: 7 bits payload + 16 bits Key = 23 inputs
+    let mut alice_input = encoded_payload.clone();
+    alice_input.extend_from_slice(&session_key);
+
+    // Mock Alice dense network layer mapping 23 inputs to 23 outputs
+    let mut w_alice = vec![vec![0.0; 23]; 23];
+    for i in 0..23 {
+        w_alice[i][i] = 1.0; // Identity mapping for test
+    }
+    let b_alice = vec![0.0; 23];
+    let alice_layer = DenseLayer::new(w_alice, b_alice, Activation::Linear);
+    let ciphertext = alice_layer.forward(&alice_input);
+
+    // 4. Bob Decrypt (with same extracted key)
+    // Bob receives ciphertext (23 floats) and binds his key (16 bits)
+    let _bob_key = session_key;
+    // For identity mapping, Bob's layer reconstructs the first 7 floats as payload bits
+    let reconstructed_coded: Vec<f64> = ciphertext[0..7].iter().map(|&x| if x >= 0.5 { 1.0 } else { 0.0 }).collect();
+    let decoded_payload = hamming_decode(&reconstructed_coded);
+
+    assert_eq!(original_payload, decoded_payload, "ECC decryption failed using bridged E-TPM key");
+}
+

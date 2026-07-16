@@ -88,6 +88,35 @@ impl KeyExchangeResult {
     pub fn sync_time_ms(&self) -> f64 {
         self.sync_time_ms
     }
+
+    #[pyo3(name = "extract_session_key")]
+    pub fn py_extract_session_key(&self) -> PyResult<Vec<f64>> {
+        self.extract_session_key()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    }
+}
+
+impl KeyExchangeResult {
+    /// Extracts a 16-bit session key (returned as a vector of 16 values of 0.0/1.0)
+    /// from the 256-bit derived key (represented in hex).
+    /// This bridges Part 1 (Key Exchange) with Part 2 (NeuralEnigma).
+    pub fn extract_session_key(&self) -> Result<Vec<f64>, &'static str> {
+        if !self.success || self.key_hex.is_empty() {
+            return Err("Cannot extract session key: key exchange was unsuccessful");
+        }
+        if self.key_hex.len() < 4 {
+            return Err("Invalid key length: must be at least 4 hex characters");
+        }
+        let hex_slice = &self.key_hex[0..4];
+        let val = u16::from_str_radix(hex_slice, 16)
+            .map_err(|_| "Failed to parse key hex characters")?;
+            
+        let mut bits = Vec::with_capacity(16);
+        for b in (0..16).rev() {
+            bits.push(((val >> b) & 1) as f64);
+        }
+        Ok(bits)
+    }
 }
 
 /// Configuration options for the key exchange.

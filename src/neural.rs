@@ -74,7 +74,6 @@ impl NeuralNet {
         Self { layers }
     }
 
-    /// Computes the forward pass of the entire network.
     pub fn forward(&self, input: &[f64]) -> Vec<f64> {
         let mut current = input.to_vec();
         for layer in &self.layers {
@@ -83,6 +82,105 @@ impl NeuralNet {
         current
     }
 }
+
+// ── INT8 Quantization Helpers ────────────────────────────────────────────────
+
+/// Maps a float in [-1.0, 1.0] to an i8 integer using a scale factor.
+#[inline]
+pub fn quantize(x: f64, scale: f64) -> i8 {
+    if scale == 0.0 {
+        return 0;
+    }
+    let q = (x / scale).round();
+    if q > 127.0 {
+        127
+    } else if q < -128.0 {
+        -128
+    } else {
+        q as i8
+    }
+}
+
+/// Maps an i8 integer back to a float using a scale factor.
+#[inline]
+pub fn dequantize(q: i8, scale: f64) -> f64 {
+    (q as f64) * scale
+}
+
+/// An INT8 quantized fully connected layer.
+#[derive(Clone, Debug)]
+pub struct IntegerDenseLayer {
+    pub weights: Vec<Vec<i8>>, // OutChannels x InChannels
+    pub biases: Vec<i32>,       // OutChannels (accumulated scale)
+    pub scale_in: f64,
+    pub scale_w: f64,
+    pub scale_out: f64,
+    pub activation: Activation,
+}
+
+impl IntegerDenseLayer {
+    pub fn new(
+        weights: Vec<Vec<i8>>,
+        biases: Vec<i32>,
+        scale_in: f64,
+        scale_w: f64,
+        scale_out: f64,
+        activation: Activation,
+    ) -> Self {
+        Self {
+            weights,
+            biases,
+            scale_in,
+            scale_w,
+            scale_out,
+            activation,
+        }
+    }
+
+    /// Computes the forward pass of the quantized layer.
+    /// Takes quantized `i8` inputs and returns quantized `i8` outputs.
+    pub fn forward(&self, input: &[i8]) -> Vec<i8> {
+        let mut output = vec![0; self.biases.len()];
+        let scale_accum = self.scale_in * self.scale_w;
+
+        for i in 0..self.biases.len() {
+            let mut acc: i32 = self.biases[i];
+            for j in 0..input.len() {
+                acc += (self.weights[i][j] as i32) * (input[j] as i32);
+            }
+
+            // Convert back to float for non-linear activation scaling
+            let val_float = (acc as f64) * scale_accum;
+            let act_float = self.activation.apply(val_float);
+            
+            // Re-quantize to i8 output scale
+            output[i] = quantize(act_float, self.scale_out);
+        }
+        output
+    }
+}
+
+/// An INT8 quantized neural network.
+#[derive(Clone, Debug)]
+pub struct IntegerNeuralNet {
+    pub layers: Vec<IntegerDenseLayer>,
+}
+
+impl IntegerNeuralNet {
+    pub fn new(layers: Vec<IntegerDenseLayer>) -> Self {
+        Self { layers }
+    }
+
+    /// Computes the quantized forward pass of the entire network.
+    pub fn forward(&self, input: &[i8]) -> Vec<i8> {
+        let mut current = input.to_vec();
+        for layer in &self.layers {
+            current = layer.forward(&current);
+        }
+        current
+    }
+}
+
 
 // ── Hamming(7, 4) Error Correction Code (ECC) ───────────────────────────────
 //
@@ -265,5 +363,58 @@ mod tests {
 
         let decoded = hamming_decode(&encoded);
         assert_eq!(original, decoded, "Hamming ECC failed to correct single-bit errors in blocks");
+    }
+
+    #[test]
+    fn test_quantization_equivalence() {
+        // Setup original float layer
+        let w_float = vec![vec![0.5, -0.25], vec![0.125, 0.75]];
+        let b_float = vec![0.1, -0.2];
+        let layer_float = DenseLayer::new(w_float, b_float, Activation::ReLU);
+
+        // Quantization scales
+        let scale_in = 0.5;
+        let scale_w = 0.25;
+        let scale_out = 0.5;
+        let scale_accum = scale_in * scale_w; // 0.125
+
+        // Convert weights and biases to quantized INT8/INT32
+        let w_quant = vec![
+            vec![quantize(0.5, scale_w), quantize(-0.25, scale_w)],
+            vec![quantize(0.125, scale_w), quantize(0.75, scale_w)],
+        ];
+        let b_quant = vec![
+            quantize(0.1, scale_accum) as i32,
+            quantize(-0.2, scale_accum) as i32,
+        ];
+
+        let layer_quant = IntegerDenseLayer::new(
+            w_quant,
+            b_quant,
+            scale_in,
+            scale_w,
+            scale_out,
+            Activation::ReLU,
+        );
+
+        // Input values
+        let input_float = vec![1.0, -0.5];
+        let input_quant: Vec<i8> = input_float.iter().map(|&x| quantize(x, scale_in)).collect();
+
+        // Forward passes
+        let out_float = layer_float.forward(&input_float);
+        let out_quant = layer_quant.forward(&input_quant);
+
+        // Verify outputs match (within scale threshold)
+        for i in 0..out_float.len() {
+            let out_q_dequant = dequantize(out_quant[i], scale_out);
+            assert!(
+                (out_float[i] - out_q_dequant).abs() <= scale_out,
+                "Quantized output differs significantly from float output at index {}: float={}, quantized={}",
+                i,
+                out_float[i],
+                out_q_dequant
+            );
+        }
     }
 }

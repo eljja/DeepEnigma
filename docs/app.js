@@ -771,27 +771,91 @@ document.addEventListener('DOMContentLoaded', () => {
             let charCode = 0;
             const slice = bits.slice(offset, offset + 8);
             for (let b = 0; b < 8; b++) {
-                if (slice[b] >= 0.5) {
-                    charCode |= (1 << (7 - b));
-                }
-            }
-            text += String.fromCharCode(charCode);
-        }
-        return text;
-    }
-
-    // Visualize nodes in container helper
-    function visualizeNodes(containerId, bits) {
+                if (slice[b]     // Visualize nodes in container helper with quantized integer tooltips
+    function visualizeNodes(containerId, bits, tooltipValues) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
         bits.forEach((bit, idx) => {
             const circle = document.createElement('div');
             circle.className = `node-circle ${bit >= 0.5 ? 'active-one' : 'active-zero'}`;
             circle.textContent = bit >= 0.5 ? '1' : '0';
-            circle.setAttribute('title', `Node ${idx}: ${bit}`);
+            
+            let titleText = `Node ${idx}: ${bit}`;
+            if (tooltipValues && tooltipValues[idx] !== undefined) {
+                titleText += ` (Quantized INT8: ${tooltipValues[idx]})`;
+            }
+            circle.setAttribute('title', titleText);
             container.appendChild(circle);
         });
     }
+
+    // INT8 Quantization Helpers in JS
+    function jsQuantize(x, scale) {
+        if (scale === 0.0) return 0;
+        let q = Math.round(x / scale);
+        return Math.max(-128, Math.min(127, q));
+    }
+
+    function jsDequantize(q, scale) {
+        return q * scale;
+    }
+
+    // Integer Quantized Dense Layer forward pass in JS
+    function jsIntegerDenseForward(input, layer) {
+        let out = [];
+        const scaleAccum = layer.scale_in * layer.scale_w;
+        for (let i = 0; i < layer.biases_int32.length; i++) {
+            let acc = layer.biases_int32[i];
+            for (let j = 0; j < input.length; j++) {
+                acc += layer.weights_int8[i][j] * input[j];
+            }
+            let valFloat = acc * scaleAccum;
+            let actFloat;
+            if (layer.activation === 'relu') {
+                actFloat = valFloat > 0 ? valFloat : 0;
+            } else if (layer.activation === 'sigmoid') {
+                actFloat = 1.0 / (1.0 + Math.exp(-valFloat));
+            } else if (layer.activation === 'step') {
+                actFloat = valFloat >= 0.5 ? 1.0 : 0.0;
+            } else {
+                actFloat = valFloat;
+            }
+            out.push(jsQuantize(actFloat, layer.scale_out));
+        }
+        return out;
+    }
+
+    function jsIntegerNetForward(input, layers) {
+        let current = input;
+        for (let i = 0; i < layers.length; i++) {
+            current = jsIntegerDenseForward(current, layers[i]);
+        }
+        return current;
+    }
+
+    // Bridge Part 1 key output to Part 2
+    const btnApplyKeyNeural = document.getElementById('btn-apply-key-neural');
+    btnApplyKeyNeural.addEventListener('click', () => {
+        const keyOutput = document.getElementById('key-output').textContent.trim();
+        if (keyOutput.includes('Generating') || keyOutput.length < 4) {
+            alert('키 동기화가 완료되지 않았습니다. 먼저 동기화를 수행해 주세요.');
+            return;
+        }
+        // Extract first 4 hex characters to get 16 bits
+        const hex = keyOutput.slice(0, 4);
+        const val = parseInt(hex, 16);
+        for (let b = 0; b < 16; b++) {
+            keyBits[b] = (val >> (15 - b)) & 1;
+        }
+        renderKeySelector();
+        // Toggle tab active classes
+        tabButtons.forEach(btn => {
+            if (btn.getAttribute('data-tab') === 'tab-neural') {
+                btn.click();
+            }
+        });
+        alert('E-TPM 합의 대칭키가 신경망 암호화 키로 성공적으로 로드되었습니다!');
+    });
 
     // Trigger run encryption
     const btnNeuralRun = document.getElementById('btn-neural-run');
@@ -817,67 +881,97 @@ document.addEventListener('DOMContentLoaded', () => {
             encodedBits = jsHammingEncode(msgBits);
         }
 
-        // 2. Feed into AliceNet
-        const aliceInput = [...encodedBits, ...keyBits];
-        let cipherFloats;
+        // 2. Feed into AliceNet (Quantized INT8 Inference)
+        const scaleInAlice = loadedWeights.alice.layers[0].scale_in;
+        const scaleOutAlice = loadedWeights.alice.layers[loadedWeights.alice.layers.length - 1].scale_out;
+        
+        // Quantize Alice Inputs to INT8
+        const aliceInputFloat = [...encodedBits, ...keyBits];
+        const aliceInputInt8 = aliceInputFloat.map(v => {
+            return wasmEngine && wasmInstance 
+                ? wasmInstance.wasm_quantize(v, scaleInAlice)
+                : jsQuantize(v, scaleInAlice);
+        });
 
+        let cipherInt8;
         if (wasmEngine && wasmInstance) {
             try {
-                // Initialize WASM network
-                const aliceNet = new wasmInstance.WasmNeuralNet();
+                const aliceNet = new wasmInstance.WasmIntegerNeuralNet();
                 loadedWeights.alice.layers.forEach(layer => {
-                    const flatWeights = layer.weights.flat();
-                    const outCh = layer.biases.length;
+                    const flatWeights = layer.weights_int8.flat();
+                    const outCh = layer.biases_int32.length;
                     const inCh = flatWeights.length / outCh;
-                    aliceNet.add_layer(flatWeights, layer.biases, outCh, inCh, layer.activation);
+                    aliceNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
                 });
-                cipherFloats = aliceNet.forward(aliceInput);
+                cipherInt8 = aliceNet.forward(aliceInputInt8);
             } catch (e) {
-                console.warn('WASM Alice forward failed, falling back to JS.', e);
-                cipherFloats = jsNetForward(aliceInput, loadedWeights.alice.layers);
+                console.warn('WASM Alice INT8 forward failed, falling back to JS.', e);
+                cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
             }
         } else {
-            cipherFloats = jsNetForward(aliceInput, loadedWeights.alice.layers);
+            cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
         }
 
-        // Render Alice Nodes (encoded payload + key input visualization)
-        visualizeNodes('neural-alice-nodes', aliceInput);
+        // Dequantize cipher floats for compatibility/display
+        const cipherFloats = cipherInt8.map(v => {
+            return wasmEngine && wasmInstance
+                ? wasmInstance.wasm_dequantize(v, scaleOutAlice)
+                : jsDequantize(v, scaleOutAlice);
+        });
 
-        // Render Ciphertext floats
+        // Render Alice Nodes (inputs shown as binary with INT8 values in tooltip)
+        visualizeNodes('neural-alice-nodes', aliceInputFloat, aliceInputInt8);
+
+        // Render Ciphertext INT8 representations
         const cipherContainer = document.getElementById('neural-ciphertext-floats');
         cipherContainer.innerHTML = '';
-        cipherFloats.forEach(val => {
+        cipherInt8.forEach((val, idx) => {
             const box = document.createElement('div');
             box.className = 'cipher-node';
-            box.textContent = val.toFixed(2);
+            box.textContent = val; // Display the raw INT8 quantized values!
+            box.setAttribute('title', `Float value: ${cipherFloats[idx].toFixed(4)}`);
             cipherContainer.appendChild(box);
         });
 
-        // 3. Bob Decryption (Correct Key)
-        const bobInput = [...cipherFloats, ...keyBits];
-        let bobDecodedCoded;
+        // 3. Bob Decryption (Correct Key - Quantized INT8 Inference)
+        const scaleInBob = loadedWeights.bob.layers[0].scale_in;
+        const scaleOutBob = loadedWeights.bob.layers[loadedWeights.bob.layers.length - 1].scale_out;
 
+        // Bob input: Quantized Ciphertext + Quantized Key
+        const bobKeyBitsInt8 = keyBits.map(v => {
+            return wasmEngine && wasmInstance 
+                ? wasmInstance.wasm_quantize(v, scaleInBob)
+                : jsQuantize(v, scaleInBob);
+        });
+        const bobInputInt8 = [...cipherInt8, ...bobKeyBitsInt8];
+
+        let bobDecodedInt8;
         if (wasmEngine && wasmInstance) {
             try {
-                const bobNet = new wasmInstance.WasmNeuralNet();
+                const bobNet = new wasmInstance.WasmIntegerNeuralNet();
                 loadedWeights.bob.layers.forEach(layer => {
-                    const flatWeights = layer.weights.flat();
-                    const outCh = layer.biases.length;
+                    const flatWeights = layer.weights_int8.flat();
+                    const outCh = layer.biases_int32.length;
                     const inCh = flatWeights.length / outCh;
-                    bobNet.add_layer(flatWeights, layer.biases, outCh, inCh, layer.activation);
+                    bobNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
                 });
-                bobDecodedCoded = bobNet.forward(bobInput);
+                bobDecodedInt8 = bobNet.forward(bobInputInt8);
             } catch (e) {
-                console.warn('WASM Bob forward failed, falling back to JS.', e);
-                bobDecodedCoded = jsNetForward(bobInput, loadedWeights.bob.layers);
+                console.warn('WASM Bob INT8 forward failed, falling back to JS.', e);
+                bobDecodedInt8 = jsIntegerNetForward(bobInputInt8, loadedWeights.bob.layers);
             }
         } else {
-            bobDecodedCoded = jsNetForward(bobInput, loadedWeights.bob.layers);
+            bobDecodedInt8 = jsIntegerNetForward(bobInputInt8, loadedWeights.bob.layers);
         }
 
-        // Quantize Bob coded output
-        const bobCodedBits = bobDecodedCoded.map(v => v >= 0.5 ? 1 : 0);
-        visualizeNodes('neural-bob-nodes', bobCodedBits);
+        // Dequantize Bob output to bits
+        const bobDecodedFloat = bobDecodedInt8.map(v => {
+            return wasmEngine && wasmInstance
+                ? wasmInstance.wasm_dequantize(v, scaleOutBob)
+                : jsDequantize(v, scaleOutBob);
+        });
+        const bobCodedBits = bobDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
+        visualizeNodes('neural-bob-nodes', bobCodedBits, bobDecodedInt8);
 
         // Bob Decode Hamming(7,4) ECC
         let bobFinalBits;
@@ -896,29 +990,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 4. Eve Decryption (No Key - Zero Key)
         const zeroKey = new Array(16).fill(0);
-        const eveInput = [...cipherFloats, ...zeroKey];
-        let eveDecodedCoded;
+        const eveKeyBitsInt8 = zeroKey.map(v => {
+            return wasmEngine && wasmInstance 
+                ? wasmInstance.wasm_quantize(v, scaleInBob)
+                : jsQuantize(v, scaleInBob);
+        });
+        const eveInputInt8 = [...cipherInt8, ...eveKeyBitsInt8];
+        let eveDecodedInt8;
 
         if (wasmEngine && wasmInstance) {
             try {
-                const eveNet = new wasmInstance.WasmNeuralNet();
+                const eveNet = new wasmInstance.WasmIntegerNeuralNet();
                 loadedWeights.bob.layers.forEach(layer => {
-                    const flatWeights = layer.weights.flat();
-                    const outCh = layer.biases.length;
+                    const flatWeights = layer.weights_int8.flat();
+                    const outCh = layer.biases_int32.length;
                     const inCh = flatWeights.length / outCh;
-                    eveNet.add_layer(flatWeights, layer.biases, outCh, inCh, layer.activation);
+                    eveNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
                 });
-                eveDecodedCoded = eveNet.forward(eveInput);
+                eveDecodedInt8 = eveNet.forward(eveInputInt8);
             } catch (e) {
-                eveDecodedCoded = jsNetForward(eveInput, loadedWeights.bob.layers);
+                eveDecodedInt8 = jsIntegerNetForward(eveInputInt8, loadedWeights.bob.layers);
             }
         } else {
-            eveDecodedCoded = jsNetForward(eveInput, loadedWeights.bob.layers);
+            eveDecodedInt8 = jsIntegerNetForward(eveInputInt8, loadedWeights.bob.layers);
         }
 
-        // Quantize Eve coded output
-        const eveCodedBits = eveDecodedCoded.map(v => v >= 0.5 ? 1 : 0);
-        visualizeNodes('neural-eve-nodes', eveCodedBits);
+        // Dequantize Eve output to bits
+        const eveDecodedFloat = eveDecodedInt8.map(v => {
+            return wasmEngine && wasmInstance
+                ? wasmInstance.wasm_dequantize(v, scaleOutBob)
+                : jsDequantize(v, scaleOutBob);
+        });
+        const eveCodedBits = eveDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
+        visualizeNodes('neural-eve-nodes', eveCodedBits, eveDecodedInt8);
 
         // Eve Decode Hamming(7,4) ECC
         let eveFinalBits;
@@ -935,7 +1039,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const eveText = bitsToText(eveFinalBits);
         document.getElementById('neural-eve-decrypted-text').textContent = `"${eveText}"`;
     });
-});
 
     // Initial Reset to setup ETPMs
     resetSimulation();

@@ -123,6 +123,60 @@ export class WasmETPM {
 }
 if (Symbol.dispose) WasmETPM.prototype[Symbol.dispose] = WasmETPM.prototype.free;
 
+export class WasmIntegerNeuralNet {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmIntegerNeuralNetFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmintegerneuralnet_free(ptr, 0);
+    }
+    /**
+     * @param {Int8Array} weights_flat
+     * @param {Int32Array} biases
+     * @param {number} out_channels
+     * @param {number} in_channels
+     * @param {number} scale_in
+     * @param {number} scale_w
+     * @param {number} scale_out
+     * @param {string} act
+     */
+    add_layer(weights_flat, biases, out_channels, in_channels, scale_in, scale_w, scale_out, act) {
+        const ptr0 = passArray8ToWasm0(weights_flat, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray32ToWasm0(biases, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(act, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmintegerneuralnet_add_layer(this.__wbg_ptr, ptr0, len0, ptr1, len1, out_channels, in_channels, scale_in, scale_w, scale_out, ptr2, len2);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {Int8Array} input
+     * @returns {Int8Array}
+     */
+    forward(input) {
+        const ptr0 = passArray8ToWasm0(input, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmintegerneuralnet_forward(this.__wbg_ptr, ptr0, len0);
+        var v2 = getArrayI8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v2;
+    }
+    constructor() {
+        const ret = wasm.wasmintegerneuralnet_new();
+        this.__wbg_ptr = ret;
+        WasmIntegerNeuralNetFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+}
+if (Symbol.dispose) WasmIntegerNeuralNet.prototype[Symbol.dispose] = WasmIntegerNeuralNet.prototype.free;
+
 export class WasmKeyExchangeResult {
     static __wrap(ptr) {
         const obj = Object.create(WasmKeyExchangeResult.prototype);
@@ -178,6 +232,18 @@ export class WasmKeyExchangeResult {
      */
     set sync_time_ms(arg0) {
         wasm.__wbg_set_wasmkeyexchangeresult_sync_time_ms(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @returns {Float64Array}
+     */
+    extract_session_key() {
+        const ret = wasm.wasmkeyexchangeresult_extract_session_key(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v1;
     }
     /**
      * @returns {string}
@@ -275,6 +341,16 @@ export function run_wasm_key_exchange(k, n, l, max_rounds, update_rule, activati
 }
 
 /**
+ * @param {number} q
+ * @param {number} scale
+ * @returns {number}
+ */
+export function wasm_dequantize(q, scale) {
+    const ret = wasm.wasm_dequantize(q, scale);
+    return ret;
+}
+
+/**
  * @param {Float64Array} data
  * @returns {Float64Array}
  */
@@ -298,6 +374,16 @@ export function wasm_hamming_encode(data) {
     var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
     return v2;
+}
+
+/**
+ * @param {number} x
+ * @param {number} scale
+ * @returns {number}
+ */
+export function wasm_quantize(x, scale) {
+    const ret = wasm.wasm_quantize(x, scale);
+    return ret;
 }
 function __wbg_get_imports() {
     const import0 = {
@@ -416,6 +502,9 @@ function __wbg_get_imports() {
 const WasmETPMFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmetpm_free(ptr, 1));
+const WasmIntegerNeuralNetFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmintegerneuralnet_free(ptr, 1));
 const WasmKeyExchangeResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmkeyexchangeresult_free(ptr, 1));
@@ -439,6 +528,11 @@ function getArrayI32FromWasm0(ptr, len) {
     return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
+function getArrayI8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getInt8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -458,6 +552,14 @@ function getInt32ArrayMemory0() {
         cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
     }
     return cachedInt32ArrayMemory0;
+}
+
+let cachedInt8ArrayMemory0 = null;
+function getInt8ArrayMemory0() {
+    if (cachedInt8ArrayMemory0 === null || cachedInt8ArrayMemory0.byteLength === 0) {
+        cachedInt8ArrayMemory0 = new Int8Array(wasm.memory.buffer);
+    }
+    return cachedInt8ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -496,6 +598,13 @@ function isLikeNone(x) {
 function passArray32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -586,6 +695,7 @@ function __wbg_finalize_init(instance, module) {
     wasmModule = module;
     cachedFloat64ArrayMemory0 = null;
     cachedInt32ArrayMemory0 = null;
+    cachedInt8ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

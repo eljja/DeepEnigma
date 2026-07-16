@@ -31,6 +31,16 @@ impl WasmKeyExchangeResult {
     pub fn key_hex(&self) -> String {
         self.key_hex.clone()
     }
+
+    pub fn extract_session_key(&self) -> Result<Vec<f64>, JsValue> {
+        let native = crate::protocol::KeyExchangeResult {
+            success: self.success,
+            rounds: self.rounds,
+            key_hex: self.key_hex.clone(),
+            sync_time_ms: self.sync_time_ms,
+        };
+        native.extract_session_key().map_err(|e| JsValue::from_str(e))
+    }
 }
 
 /// Runs a full Alice-Bob key exchange simulation from the browser.
@@ -229,4 +239,79 @@ impl WasmNeuralNet {
         self.inner.forward(&input)
     }
 }
+
+#[wasm_bindgen]
+pub fn wasm_quantize(x: f64, scale: f64) -> i8 {
+    crate::neural::quantize(x, scale)
+}
+
+#[wasm_bindgen]
+pub fn wasm_dequantize(q: i8, scale: f64) -> f64 {
+    crate::neural::dequantize(q, scale)
+}
+
+#[wasm_bindgen]
+pub struct WasmIntegerNeuralNet {
+    inner: crate::neural::IntegerNeuralNet,
+}
+
+#[wasm_bindgen]
+impl WasmIntegerNeuralNet {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: crate::neural::IntegerNeuralNet::new(Vec::new()),
+        }
+    }
+
+    pub fn add_layer(
+        &mut self,
+        weights_flat: Vec<i8>,
+        biases: Vec<i32>,
+        out_channels: usize,
+        in_channels: usize,
+        scale_in: f64,
+        scale_w: f64,
+        scale_out: f64,
+        act: String,
+    ) -> Result<(), JsValue> {
+        if weights_flat.len() != out_channels * in_channels {
+            return Err(JsValue::from_str("Invalid weights array length"));
+        }
+        if biases.len() != out_channels {
+            return Err(JsValue::from_str("Invalid biases array length"));
+        }
+
+        let activation = match act.to_lowercase().as_str() {
+            "linear" => crate::neural::Activation::Linear,
+            "relu" => crate::neural::Activation::ReLU,
+            "sigmoid" => crate::neural::Activation::Sigmoid,
+            "step" => crate::neural::Activation::Step,
+            _ => return Err(JsValue::from_str("Invalid activation")),
+        };
+
+        let mut weights = vec![vec![0; in_channels]; out_channels];
+        for i in 0..out_channels {
+            for j in 0..in_channels {
+                weights[i][j] = weights_flat[i * in_channels + j];
+            }
+        }
+
+        let layer = crate::neural::IntegerDenseLayer::new(
+            weights,
+            biases,
+            scale_in,
+            scale_w,
+            scale_out,
+            activation,
+        );
+        self.inner.layers.push(layer);
+        Ok(())
+    }
+
+    pub fn forward(&self, input: Vec<i8>) -> Vec<i8> {
+        self.inner.forward(&input)
+    }
+}
+
 

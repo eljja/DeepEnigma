@@ -19,10 +19,19 @@ export class WasmETPM {
     update_weights(tau: number, rule: string): void;
 }
 
+export class WasmIntegerNeuralNet {
+    free(): void;
+    [Symbol.dispose](): void;
+    add_layer(weights_flat: Int8Array, biases: Int32Array, out_channels: number, in_channels: number, scale_in: number, scale_w: number, scale_out: number, act: string): void;
+    forward(input: Int8Array): Int8Array;
+    constructor();
+}
+
 export class WasmKeyExchangeResult {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    extract_session_key(): Float64Array;
     rounds: number;
     success: boolean;
     sync_time_ms: number;
@@ -46,9 +55,13 @@ export class WasmNeuralNet {
  */
 export function run_wasm_key_exchange(k: number, n: number, l: number, max_rounds: number, update_rule: string, activation_type: string, adaptive_l_scaling: boolean, active_query_threshold: number): WasmKeyExchangeResult;
 
+export function wasm_dequantize(q: number, scale: number): number;
+
 export function wasm_hamming_decode(data: Float64Array): Float64Array;
 
 export function wasm_hamming_encode(data: Float64Array): Float64Array;
+
+export function wasm_quantize(x: number, scale: number): number;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -61,11 +74,14 @@ export interface InitOutput {
     readonly __wbg_set_wasmkeyexchangeresult_success: (a: number, b: number) => void;
     readonly __wbg_set_wasmkeyexchangeresult_sync_time_ms: (a: number, b: number) => void;
     readonly __wbg_wasmetpm_free: (a: number, b: number) => void;
+    readonly __wbg_wasmintegerneuralnet_free: (a: number, b: number) => void;
     readonly __wbg_wasmkeyexchangeresult_free: (a: number, b: number) => void;
     readonly __wbg_wasmneuralnet_free: (a: number, b: number) => void;
     readonly run_wasm_key_exchange: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly wasm_dequantize: (a: number, b: number) => number;
     readonly wasm_hamming_decode: (a: number, b: number) => [number, number];
     readonly wasm_hamming_encode: (a: number, b: number) => [number, number];
+    readonly wasm_quantize: (a: number, b: number) => number;
     readonly wasmetpm_calculate_local_fields: (a: number, b: number, c: number) => [number, number, number, number];
     readonly wasmetpm_calculate_output: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmetpm_chaotic_transform_flat: (a: number, b: number) => [number, number];
@@ -76,6 +92,10 @@ export interface InitOutput {
     readonly wasmetpm_new: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly wasmetpm_scale_synaptic_depth: (a: number, b: number) => [number, number];
     readonly wasmetpm_update_weights: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly wasmintegerneuralnet_add_layer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
+    readonly wasmintegerneuralnet_forward: (a: number, b: number, c: number) => [number, number];
+    readonly wasmintegerneuralnet_new: () => number;
+    readonly wasmkeyexchangeresult_extract_session_key: (a: number) => [number, number, number, number];
     readonly wasmkeyexchangeresult_key_hex: (a: number) => [number, number];
     readonly wasmneuralnet_add_layer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number];
     readonly wasmneuralnet_forward: (a: number, b: number, c: number) => [number, number];
