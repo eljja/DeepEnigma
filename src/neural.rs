@@ -81,9 +81,90 @@ impl NeuralNet {
         }
         current
     }
+
+    /// Alice encrypts and scrambles the output ciphertext using 4D hyperchaos (Part 3-2).
+    pub fn forward_scrambled(&self, input: &[f64], hc: &mut HyperchaoticSystem) -> Vec<f64> {
+        let c = self.forward(input);
+        let h = hc.generate_sequence(c.len());
+        c.iter().zip(h.iter()).map(|(&cv, &hv)| cv + hv).collect()
+    }
+
+    /// Bob unscrambles the ciphertext using 4D hyperchaos and decrypts it (Part 3-2).
+    pub fn decrypt_scrambled(&self, scrambled_cipher: &[f64], input_key: &[f64], hc: &mut HyperchaoticSystem) -> Vec<f64> {
+        let h = hc.generate_sequence(scrambled_cipher.len());
+        let c: Vec<f64> = scrambled_cipher.iter().zip(h.iter()).map(|(&sc, &hv)| sc - hv).collect();
+        let mut bob_input = c;
+        bob_input.extend_from_slice(input_key);
+        self.forward(&bob_input)
+    }
+}
+
+
+// ── Part 3: Hyperchaotic System ──────────────────────────────────────────────
+
+/// A 4D Coupled Map Lattice (CML) Hyperchaotic System.
+/// Serves as the core scrambling and hardening engine for Part 3.
+#[derive(Clone, Debug)]
+pub struct HyperchaoticSystem {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub w: f64,
+    r: f64,
+    e: f64,
+}
+
+impl HyperchaoticSystem {
+    /// Creates a new hyperchaotic system with initial seeds.
+    pub fn new(x_init: f64, y_init: f64, z_init: f64, w_init: f64) -> Self {
+        // Clamp seeds to open interval (0.0, 1.0)
+        let clamp_seed = |s: f64| -> f64 {
+            let clamped = s.abs() % 1.0;
+            if clamped == 0.0 { 0.5 } else { clamped }
+        };
+        Self {
+            x: clamp_seed(x_init),
+            y: clamp_seed(y_init),
+            z: clamp_seed(z_init),
+            w: clamp_seed(w_init),
+            r: 3.99, // Chaotic regime
+            e: 0.1,  // Coupling factor
+        }
+    }
+
+    /// Computes the next state of the 4D hyperchaotic system using ring coupling.
+    pub fn next(&mut self) {
+        let f = |v: f64| self.r * v * (1.0 - v);
+        
+        let fx = f(self.x);
+        let fy = f(self.y);
+        let fz = f(self.z);
+        let fw = f(self.w);
+
+        let x_next = (1.0 - self.e) * fx + self.e * fy;
+        let y_next = (1.0 - self.e) * fy + self.e * fz;
+        let z_next = (1.0 - self.e) * fz + self.e * fw;
+        let w_next = (1.0 - self.e) * fw + self.e * fx;
+
+        self.x = x_next;
+        self.y = y_next;
+        self.z = z_next;
+        self.w = w_next;
+    }
+
+    /// Generates a vector of hyperchaotic pseudorandom floats in [-1.0, 1.0] of length `len`.
+    pub fn generate_sequence(&mut self, len: usize) -> Vec<f64> {
+        let mut seq = Vec::with_capacity(len);
+        for _ in 0..len {
+            self.next();
+            seq.push(self.x * 2.0 - 1.0);
+        }
+        seq
+    }
 }
 
 // ── INT8 Quantization Helpers ────────────────────────────────────────────────
+
 
 /// Maps a float in [-1.0, 1.0] to an i8 integer using a scale factor.
 #[inline]
@@ -178,6 +259,28 @@ impl IntegerNeuralNet {
             current = layer.forward(&current);
         }
         current
+    }
+
+    /// Alice encrypts and scrambles the quantized output ciphertext using 4D hyperchaos (Part 3-2).
+    pub fn forward_scrambled(&self, input: &[i8], hc: &mut HyperchaoticSystem, scale_out: f64) -> Vec<i8> {
+        let c = self.forward(input);
+        let h = hc.generate_sequence(c.len());
+        c.iter().zip(h.iter()).map(|(&cv, &hv)| {
+            let h_int = quantize(hv, scale_out);
+            cv.wrapping_add(h_int)
+        }).collect()
+    }
+
+    /// Bob unscrambles the quantized ciphertext using 4D hyperchaos and decrypts it (Part 3-2).
+    pub fn decrypt_scrambled(&self, scrambled_cipher: &[i8], input_key_int8: &[i8], hc: &mut HyperchaoticSystem, scale_out_alice: f64) -> Vec<i8> {
+        let h = hc.generate_sequence(scrambled_cipher.len());
+        let c: Vec<i8> = scrambled_cipher.iter().zip(h.iter()).map(|(&sc, &hv)| {
+            let h_int = quantize(hv, scale_out_alice);
+            sc.wrapping_sub(h_int)
+        }).collect();
+        let mut bob_input = c;
+        bob_input.extend_from_slice(input_key_int8);
+        self.forward(&bob_input)
     }
 }
 

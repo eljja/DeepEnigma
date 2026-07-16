@@ -541,3 +541,60 @@ fn test_etpm_key_bridging_to_neural() {
     assert_eq!(original_payload, decoded_payload, "ECC decryption failed using bridged E-TPM key");
 }
 
+// ── Part 2: LWE Security Estimation Test ────────────────────────────────────
+#[test]
+fn test_lwe_security_estimation() {
+    use deep_enigma::SecurityAnalyzer;
+
+    let analyzer = SecurityAnalyzer::new(2, 10, 3);
+    
+    // Evaluate standard dimensions (e.g. 500 weights, q=256, error=3.2)
+    let metrics_low = analyzer.estimate_lwe_security(500, 256, 10.0);
+    let metrics_high = analyzer.estimate_lwe_security(2000, 256, 1.0);
+
+    // High dimensions and low error noise must yield higher security bits
+    assert!(metrics_high.classical_security_bits > metrics_low.classical_security_bits);
+    assert!(metrics_high.quantum_security_bits > metrics_low.quantum_security_bits);
+    assert_eq!(metrics_low.dimension, 500);
+}
+
+// ── Part 3: Hyperchaotic Scrambling & Hardening Test ────────────────────────
+#[test]
+fn test_hyperchaotic_hardening() {
+    use deep_enigma::ETPM;
+    use deep_enigma::neural::{NeuralNet, DenseLayer, Activation, HyperchaoticSystem};
+
+    // 1. Hyperchaotic Weight Hardening (Part 3-1)
+    let mut etpm = ETPM::new(2, 10, 3, "hyperchaotic").unwrap();
+    etpm.initialize_weights(Some(42)).unwrap();
+
+    let hw1 = etpm.hyperchaotic_transform(10);
+    let hw2 = etpm.hyperchaotic_transform(10);
+
+    assert_eq!(hw1, hw2, "Hyperchaotic transform must be deterministic");
+    assert_ne!(etpm.get_weights(), hw1, "Hyperchaotic transform must scramble the original weights");
+
+    // 2. Hyperchaotic Ciphertext Scrambling (Part 3-2)
+    // Setup a 4-channel identity dense layer
+    let mut w = vec![vec![0.0; 4]; 4];
+    for i in 0..4 {
+        w[i][i] = 1.0;
+    }
+    let b = vec![0.0; 4];
+    let net = NeuralNet::new(vec![DenseLayer::new(w, b, Activation::Linear)]);
+
+    let input = vec![1.0, 0.0, 1.0, 1.0];
+    
+    // Initialize two hyperchaotic systems with identical seeds (representing Alice and Bob)
+    let mut hc_alice = HyperchaoticSystem::new(0.1, 0.2, 0.3, 0.4);
+    let mut hc_bob = HyperchaoticSystem::new(0.1, 0.2, 0.3, 0.4);
+
+    let scrambled_cipher = net.forward_scrambled(&input, &mut hc_alice);
+    assert_ne!(input, scrambled_cipher, "Ciphertext must be scrambled by hyperchaos");
+
+    // Bob decrypts and unscrambles with the same hyperchaotic sequence
+    let decrypted = net.decrypt_scrambled(&scrambled_cipher, &[], &mut hc_bob);
+    assert_eq!(input, decrypted, "Bob must successfully decrypt and unscramble the ciphertext");
+}
+
+

@@ -121,6 +121,67 @@ class JSTPM {
         return result;
     }
 
+    hyperchaoticTransform(iterations) {
+        let result = JSON.parse(JSON.stringify(this.weights));
+        let m = 2 * this.l;
+        
+        let sum_x = 0.0;
+        let sum_y = 0.0;
+        let sum_z = 0.0;
+        let sum_w = 0.0;
+        for (let i = 0; i < this.k; i++) {
+            for (let j = 0; j < this.n; j++) {
+                let val = this.weights[i][j];
+                let idx = i * this.n + j;
+                if (idx % 4 === 0) sum_x += Math.abs(Math.cos(val));
+                else if (idx % 4 === 1) sum_y += Math.abs(Math.sin(val));
+                else if (idx % 4 === 2) sum_z += Math.abs(Math.tan(val));
+                else sum_w += Math.abs(Math.cos(val) * Math.sin(val));
+            }
+        }
+
+        let clamp = (s) => {
+            let val = Math.abs(s) % 1.0;
+            return val === 0.0 ? 0.5 : val;
+        };
+
+        let hx = clamp(sum_x);
+        let hy = clamp(sum_y);
+        let hz = clamp(sum_z);
+        let hw = clamp(sum_w);
+        let r = 3.99;
+        let e = 0.1;
+
+        let next_hc = () => {
+            let fx = r * hx * (1 - hx);
+            let fy = r * hy * (1 - hy);
+            let fz = r * hz * (1 - hz);
+            let fw = r * hw * (1 - hw);
+            hx = (1 - e) * fx + e * fy;
+            hy = (1 - e) * fy + e * fz;
+            hz = (1 - e) * fz + e * fw;
+            hw = (1 - e) * fw + e * fx;
+        };
+
+        for (let round = 0; round < 50; round++) {
+            next_hc();
+        }
+
+        for (let i = 0; i < this.k; i++) {
+            for (let j = 0; j < this.n; j++) {
+                let w = this.weights[i][j];
+                let x = w + this.l; // unsigned
+                for (let round = 0; round < iterations; round++) {
+                    next_hc();
+                    let mix = Math.floor(Math.abs(hx * 1e9));
+                    x = (x + mix) % (m + 1);
+                }
+                result[i][j] = x - this.l;
+            }
+        }
+        return result;
+    }
+
     getWeightSum() {
         let sum = 0;
         for (let i = 0; i < this.k; i++) {
@@ -189,6 +250,19 @@ class WasmTPMWrapper {
 
     chaoticTransform(iterations) {
         let flat = this.inner.chaotic_transform_flat(iterations);
+        let w2d = [];
+        for (let i = 0; i < this.k; i++) {
+            let row = [];
+            for (let j = 0; j < this.n; j++) {
+                row.push(flat[i * this.n + j]);
+            }
+            w2d.push(row);
+        }
+        return w2d;
+    }
+
+    hyperchaoticTransform(iterations) {
+        let flat = this.inner.hyperchaotic_transform_flat(iterations);
         let w2d = [];
         for (let i = 0; i < this.k; i++) {
             let row = [];
@@ -463,34 +537,110 @@ document.addEventListener('DOMContentLoaded', () => {
         const rule = document.getElementById('param-rule').value;
         const act = document.getElementById('param-act').value;
 
-        // 1. Generate random public input x (optionally filtered by Active Query)
-        let x = [];
+        // 1. Generate public input (optionally filtered by Active Query or simulated physical channel)
+        let x_a = [];
+        let x_b = [];
+        let x_e = [];
         const activeQuery = activeQueryToggle.checked;
         const threshold = parseInt(activeQueryThreshold.value);
+        const physicalChannel = physicalChannelToggle.checked;
+        const correlation = parseFloat(paramPhysicalChannel.value);
 
-        if (activeQuery) {
+        if (physicalChannel) {
+            let alpha = Math.max(0.0, Math.min(1.0, correlation));
             let attempts = 0;
             while (attempts < 100) {
-                let candidate = [];
+                let cand_a = [];
+                let cand_b = [];
+                let cand_e = [];
                 for (let i = 0; i < k; i++) {
-                    let row = [];
+                    let row_a = [];
+                    let row_b = [];
+                    let row_e = [];
                     for (let j = 0; j < n; j++) {
-                        row.push(Math.random() >= 0.5 ? 1 : -1);
+                        let s = Math.random() * 2 - 1;
+                        let n_a = Math.random() * 2 - 1;
+                        let n_b = Math.random() * 2 - 1;
+                        let n_e = Math.random() * 2 - 1;
+                        let val_a = alpha * s + (1.0 - alpha) * n_a;
+                        let val_b = alpha * s + (1.0 - alpha) * n_b;
+                        let val_e = n_e;
+                        
+                        row_a.push(val_a >= 0 ? 1 : -1);
+                        row_b.push(val_b >= 0 ? 1 : -1);
+                        row_e.push(val_e >= 0 ? 1 : -1);
                     }
-                    candidate.push(row);
+                    cand_a.push(row_a);
+                    cand_b.push(row_b);
+                    cand_e.push(row_e);
                 }
 
-                // Calculate Alice's local fields
-                let fields = alice.calculateLocalFields(candidate);
-                let minField = Math.min(...fields.map(Math.abs));
-                if (minField <= threshold) {
-                    x = candidate;
+                if (activeQuery) {
+                    let fields = alice.calculateLocalFields(cand_a);
+                    let minField = Math.min(...fields.map(Math.abs));
+                    if (minField <= threshold) {
+                        x_a = cand_a;
+                        x_b = cand_b;
+                        x_e = cand_e;
+                        break;
+                    }
+                } else {
+                    x_a = cand_a;
+                    x_b = cand_b;
+                    x_e = cand_e;
                     break;
                 }
                 attempts++;
             }
-            // Fallback if no candidate meets criteria after 100 attempts
-            if (x.length === 0) {
+            if (x_a.length === 0) {
+                for (let i = 0; i < k; i++) {
+                    let row_a = [], row_b = [], row_e = [];
+                    for (let j = 0; j < n; j++) {
+                        let s = Math.random() * 2 - 1;
+                        let n_a = Math.random() * 2 - 1;
+                        let n_b = Math.random() * 2 - 1;
+                        let n_e = Math.random() * 2 - 1;
+                        row_a.push((alpha * s + (1.0 - alpha) * n_a) >= 0 ? 1 : -1);
+                        row_b.push((alpha * s + (1.0 - alpha) * n_b) >= 0 ? 1 : -1);
+                        row_e.push(n_e >= 0 ? 1 : -1);
+                    }
+                    x_a.push(row_a);
+                    x_b.push(row_b);
+                    x_e.push(row_e);
+                }
+            }
+        } else {
+            let x = [];
+            if (activeQuery) {
+                let attempts = 0;
+                while (attempts < 100) {
+                    let candidate = [];
+                    for (let i = 0; i < k; i++) {
+                        let row = [];
+                        for (let j = 0; j < n; j++) {
+                            row.push(Math.random() >= 0.5 ? 1 : -1);
+                        }
+                        candidate.push(row);
+                    }
+
+                    let fields = alice.calculateLocalFields(candidate);
+                    let minField = Math.min(...fields.map(Math.abs));
+                    if (minField <= threshold) {
+                        x = candidate;
+                        break;
+                    }
+                    attempts++;
+                }
+                if (x.length === 0) {
+                    for (let i = 0; i < k; i++) {
+                        let row = [];
+                        for (let j = 0; j < n; j++) {
+                            row.push(Math.random() >= 0.5 ? 1 : -1);
+                        }
+                        x.push(row);
+                    }
+                }
+            } else {
                 for (let i = 0; i < k; i++) {
                     let row = [];
                     for (let j = 0; j < n; j++) {
@@ -499,20 +649,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     x.push(row);
                 }
             }
-        } else {
-            for (let i = 0; i < k; i++) {
-                let row = [];
-                for (let j = 0; j < n; j++) {
-                    row.push(Math.random() >= 0.5 ? 1 : -1);
-                }
-                x.push(row);
-            }
+            x_a = x;
+            x_b = x;
+            x_e = x;
         }
 
         // 2. Compute outputs
-        let tau_a = alice.calculateOutput(x);
-        let tau_b = bob.calculateOutput(x);
-        let tau_e = eve.calculateOutput(x);
+        let tau_a = alice.calculateOutput(x_a);
+        let tau_b = bob.calculateOutput(x_b);
+        let tau_e = eve.calculateOutput(x_e);
 
         // Update UI displays
         outAlice.textContent = tau_a === 1 ? '+1' : '-1';
@@ -561,7 +706,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStart.disabled = true;
 
             // Derive key
-            const finalWeights = act === 'hybrid' ? alice.chaoticTransform(100) : alice.weights;
+            const finalWeights = act === 'hyperchaotic'
+                ? alice.hyperchaoticTransform(100)
+                : (act === 'hybrid' ? alice.chaoticTransform(100) : alice.weights);
             deriveSha256Key(finalWeights).then(key => {
                 keyOutput.textContent = key;
                 keyPanel.classList.remove('hidden');
@@ -640,6 +787,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     renderKeySelector();
 
+    // --- PART 1-1 PHYSICAL LAYER CORRELATION BINDINGS ---
+    const physicalChannelToggle = document.getElementById('param-physical-channel-toggle');
+    const physicalChannelContainer = document.getElementById('physical-channel-container');
+    const paramPhysicalChannel = document.getElementById('param-physical-channel');
+    const valPhysicalChannel = document.getElementById('val-physical-channel');
+
+    physicalChannelToggle.addEventListener('change', () => {
+        physicalChannelContainer.style.display = physicalChannelToggle.checked ? 'block' : 'none';
+    });
+    paramPhysicalChannel.addEventListener('input', () => {
+        valPhysicalChannel.textContent = paramPhysicalChannel.value;
+    });
+
+    // --- PART 2 LWE SCOREBOARD BINDINGS & UPDATER ---
+    function updateLweScoreboard() {
+        if (!loadedWeights) return;
+        let dim = 0;
+        loadedWeights.alice.layers.forEach(l => {
+            if (l.weights_int8) {
+                dim += l.weights_int8.length * l.weights_int8[0].length;
+            } else {
+                dim += l.weights.length * l.weights[0].length;
+            }
+        });
+        
+        let modulus = 256;
+        let error = 3.20;
+        let classical = 0.0;
+        let quantum = 0.0;
+
+        if (wasmEngine && wasmInstance) {
+            try {
+                let metrics = wasmInstance.estimate_wasm_lwe_security(dim, modulus, error);
+                classical = metrics.classical_security_bits;
+                quantum = metrics.quantum_security_bits;
+            } catch (e) {
+                let ratio = modulus / error;
+                let log_ratio = Math.log2(ratio);
+                let beta = Math.max(10.0, log_ratio * 1.85);
+                classical = 0.265 * beta * Math.sqrt(dim / 500.0);
+                quantum = 0.229 * beta * Math.sqrt(dim / 500.0);
+            }
+        } else {
+            let ratio = modulus / error;
+            let log_ratio = Math.log2(ratio);
+            let beta = Math.max(10.0, log_ratio * 1.85);
+            classical = 0.265 * beta * Math.sqrt(dim / 500.0);
+            quantum = 0.229 * beta * Math.sqrt(dim / 500.0);
+        }
+        
+        document.getElementById('lwe-dim').textContent = dim;
+        document.getElementById('lwe-error').textContent = error.toFixed(2);
+        document.getElementById('lwe-classical').textContent = classical.toFixed(1) + " bits";
+        document.getElementById('lwe-quantum').textContent = quantum.toFixed(1) + " bits";
+    }
+
     // Neural Network Weight Loading
     let loadedWeights = null;
     fetch('neural_weights.json')
@@ -647,6 +850,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(data => {
             loadedWeights = data;
             console.log('✓ Successfully loaded neural weights.');
+            updateLweScoreboard();
         })
         .catch(err => {
             console.warn('Failed to load weights from file, generating pre-trained fallbacks.', err);
@@ -687,6 +891,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ]
                 }
             };
+            updateLweScoreboard();
         });
 
     // Hamming(7,4) ECC Helper functions
@@ -912,6 +1117,66 @@ document.addEventListener('DOMContentLoaded', () => {
             cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
         }
 
+        // --- PART 3-2: HYPERCHAOTIC SCRAMBLING ---
+        const scrambleToggle = document.getElementById('param-hyperchaotic-scrambling-toggle');
+        const doScramble = scrambleToggle && scrambleToggle.checked;
+        let h_noise = [];
+
+        if (doScramble) {
+            let sx = 0.1, sy = 0.2, sz = 0.3, sw = 0.4;
+            keyBits.forEach((bit, idx) => {
+                if (idx % 4 === 0) sx += bit * 0.05;
+                else if (idx % 4 === 1) sy += bit * 0.05;
+                else if (idx % 4 === 2) sz += bit * 0.05;
+                else sw += bit * 0.05;
+            });
+
+            if (wasmEngine && wasmInstance) {
+                try {
+                    let hc = new wasmInstance.WasmHyperchaoticSystem(sx, sy, sz, sw);
+                    h_noise = hc.generate_sequence(cipherInt8.length);
+                } catch (e) {
+                    console.warn('WASM Hyperchaotic failed, falling back to JS.', e);
+                }
+            }
+
+            if (h_noise.length === 0) {
+                let hx = sx, hy = sy, hz = sz, hw = sw;
+                let r = 3.99, e = 0.1;
+                for (let round = 0; round < 50; round++) {
+                    let fx = r * hx * (1 - hx);
+                    let fy = r * hy * (1 - hy);
+                    let fz = r * hz * (1 - hz);
+                    let fw = r * hw * (1 - hw);
+                    hx = (1 - e) * fx + e * fy;
+                    hy = (1 - e) * fy + e * fz;
+                    hz = (1 - e) * fz + e * fw;
+                    hw = (1 - e) * fw + e * fx;
+                }
+                for (let c = 0; c < cipherInt8.length; c++) {
+                    let fx = r * hx * (1 - hx);
+                    let fy = r * hy * (1 - hy);
+                    let fz = r * hz * (1 - hz);
+                    let fw = r * hw * (1 - hw);
+                    hx = (1 - e) * fx + e * fy;
+                    hy = (1 - e) * fy + e * fz;
+                    hz = (1 - e) * fz + e * fw;
+                    hw = (1 - e) * fw + e * fx;
+                    h_noise.push(hx * 2.0 - 1.0);
+                }
+            }
+
+            cipherInt8 = cipherInt8.map((c, idx) => {
+                let h_q = wasmEngine && wasmInstance 
+                    ? wasmInstance.wasm_quantize(h_noise[idx], scaleOutAlice)
+                    : jsQuantize(h_noise[idx], scaleOutAlice);
+                let sum = c + h_q;
+                if (sum > 127) sum -= 256;
+                if (sum < -128) sum += 256;
+                return sum;
+            });
+        }
+
         // Dequantize cipher floats for compatibility/display
         const cipherFloats = cipherInt8.map(v => {
             return wasmEngine && wasmInstance
@@ -928,8 +1193,13 @@ document.addEventListener('DOMContentLoaded', () => {
         cipherInt8.forEach((val, idx) => {
             const box = document.createElement('div');
             box.className = 'cipher-node';
+            if (doScramble) {
+                box.classList.add('scrambled');
+                box.style.boxShadow = '0 0 8px rgba(255, 75, 92, 0.6)';
+                box.style.border = '1px solid rgba(255, 75, 92, 0.8)';
+            }
             box.textContent = val; // Display the raw INT8 quantized values!
-            box.setAttribute('title', `Float value: ${cipherFloats[idx].toFixed(4)}`);
+            box.setAttribute('title', `Float value: ${cipherFloats[idx].toFixed(4)}${doScramble ? ' [Scrambled with Hyperchaos]' : ''}`);
             cipherContainer.appendChild(box);
         });
 
@@ -943,7 +1213,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? wasmInstance.wasm_quantize(v, scaleInBob)
                 : jsQuantize(v, scaleInBob);
         });
-        const bobInputInt8 = [...cipherInt8, ...bobKeyBitsInt8];
+
+        let bobCipherInputInt8 = [...cipherInt8];
+        if (doScramble) {
+            // Bob decrypts by first subtracting the identical hyperchaotic sequence
+            bobCipherInputInt8 = bobCipherInputInt8.map((c, idx) => {
+                let h_q = wasmEngine && wasmInstance 
+                    ? wasmInstance.wasm_quantize(h_noise[idx], scaleOutAlice)
+                    : jsQuantize(h_noise[idx], scaleOutAlice);
+                let diff = c - h_q;
+                if (diff > 127) diff -= 256;
+                if (diff < -128) diff += 256;
+                return diff;
+            });
+        }
+        const bobInputInt8 = [...bobCipherInputInt8, ...bobKeyBitsInt8];
 
         let bobDecodedInt8;
         if (wasmEngine && wasmInstance) {

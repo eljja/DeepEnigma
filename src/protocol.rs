@@ -141,6 +141,8 @@ pub struct KeyExchangeConfig {
     pub adaptive_l_scaling: bool,
     /// Active query threshold H. If Some(H), active query selection is enabled.
     pub active_query_threshold: Option<i32>,
+    /// Physical channel correlation R (None if standard random generation is used).
+    pub physical_channel_correlation: Option<f64>,
 }
 
 impl KeyExchangeConfig {
@@ -164,6 +166,7 @@ impl KeyExchangeConfig {
             chaotic_iterations,
             adaptive_l_scaling,
             active_query_threshold: None,
+            physical_channel_correlation: None,
         }
     }
 }
@@ -173,7 +176,7 @@ impl KeyExchangeConfig {
 #[pymethods]
 impl KeyExchangeConfig {
     #[new]
-    #[pyo3(signature = (k, n, l, max_rounds = 10000, update_rule = "hebbian".to_string(), activation_type = "hybrid".to_string(), chaotic_iterations = 100, adaptive_l_scaling = false, active_query_threshold = None))]
+    #[pyo3(signature = (k, n, l, max_rounds = 10000, update_rule = "hebbian".to_string(), activation_type = "hybrid".to_string(), chaotic_iterations = 100, adaptive_l_scaling = false, active_query_threshold = None, physical_channel_correlation = None))]
     pub fn py_new(
         k: usize,
         n: usize,
@@ -184,10 +187,21 @@ impl KeyExchangeConfig {
         chaotic_iterations: u32,
         adaptive_l_scaling: bool,
         active_query_threshold: Option<i32>,
+        physical_channel_correlation: Option<f64>,
     ) -> Self {
         let mut cfg = Self::new(k, n, l, max_rounds, update_rule, activation_type, chaotic_iterations, adaptive_l_scaling);
         cfg.active_query_threshold = active_query_threshold;
+        cfg.physical_channel_correlation = physical_channel_correlation;
         cfg
+    }
+
+    #[getter]
+    pub fn physical_channel_correlation(&self) -> Option<f64> {
+        self.physical_channel_correlation
+    }
+    #[setter]
+    pub fn set_physical_channel_correlation(&mut self, value: Option<f64>) {
+        self.physical_channel_correlation = value;
     }
 
     #[getter]
@@ -316,22 +330,36 @@ impl KeyExchange {
         while rounds < self.config.max_rounds {
             rounds += 1;
 
-            // Generate random input vector, optionally filtered by Active Query threshold
-            let inputs: Vec<Vec<i32>> = if let Some(threshold) = self.config.active_query_threshold {
-                let mut candidate;
+            // Generate inputs for Alice and Bob, optionally using physical channel correlation (Part 1-1)
+            let (inputs_a, inputs_b): (Vec<Vec<i32>>, Vec<Vec<i32>>) = if let Some(correlation) = self.config.physical_channel_correlation {
+                let k = self.config.k;
+                let n = self.config.n;
                 let mut attempts = 0;
+                let mut candidate_a = vec![vec![0; n]; k];
+                let mut candidate_b = vec![vec![0; n]; k];
+                
                 loop {
-                    candidate = (0..self.config.k)
-                        .map(|_| {
-                            (0..self.config.n)
-                                .map(|_| if rng.gen_bool(0.5) { 1 } else { -1 })
-                                .collect()
-                        })
-                        .collect();
+                    let base_seed = rng.gen::<u64>();
+                    let seed_a = base_seed.wrapping_add(12345);
+                    let seed_b = base_seed.wrapping_add(67890);
+                    let (flat_a, flat_b) = crate::rng::generate_correlated_noise(seed_a, seed_b, correlation, k * n);
+                    
+                    // Reshape flat vectors into matrices
+                    for i in 0..k {
+                        for j in 0..n {
+                            candidate_a[i][j] = flat_a[i * n + j];
+                            candidate_b[i][j] = flat_b[i * n + j];
+                        }
+                    }
 
-                    let fields = self.alice.calculate_local_fields(&candidate);
-                    let min_field = fields.iter().map(|f| f.abs()).min().unwrap_or(0);
-                    if min_field <= threshold {
+                    // If active query is enabled, check threshold on Alice's side
+                    if let Some(threshold) = self.config.active_query_threshold {
+                        let fields = self.alice.calculate_local_fields(&candidate_a);
+                        let min_field = fields.iter().map(|f| f.abs()).min().unwrap_or(0);
+                        if min_field <= threshold {
+                            break;
+                        }
+                    } else {
                         break;
                     }
                     attempts += 1;
@@ -339,28 +367,55 @@ impl KeyExchange {
                         break;
                     }
                 }
-                candidate
+                (candidate_a, candidate_b)
             } else {
-                (0..self.config.k)
-                    .map(|_| {
-                        (0..self.config.n)
-                            .map(|_| if rng.gen_bool(0.5) { 1 } else { -1 })
-                            .collect()
-                    })
-                    .collect()
+                // Traditional mode: inputs are identical for Alice and Bob (public channel)
+                let inputs: Vec<Vec<i32>> = if let Some(threshold) = self.config.active_query_threshold {
+                    let mut candidate;
+                    let mut attempts = 0;
+                    loop {
+                        candidate = (0..self.config.k)
+                            .map(|_| {
+                                (0..self.config.n)
+                                    .map(|_| if rng.gen_bool(0.5) { 1 } else { -1 })
+                                    .collect()
+                            })
+                            .collect();
+
+                        let fields = self.alice.calculate_local_fields(&candidate);
+                        let min_field = fields.iter().map(|f| f.abs()).min().unwrap_or(0);
+                        if min_field <= threshold {
+                            break;
+                        }
+                        attempts += 1;
+                        if attempts > 100 {
+                            break;
+                        }
+                    }
+                    candidate
+                } else {
+                    (0..self.config.k)
+                        .map(|_| {
+                            (0..self.config.n)
+                                .map(|_| if rng.gen_bool(0.5) { 1 } else { -1 })
+                                .collect()
+                        })
+                        .collect()
+                };
+                (inputs.clone(), inputs)
             };
 
             if rounds == 1 {
-                // Flatten first round inputs for salt
-                for row in &inputs {
+                // Flatten first round inputs of Alice for salt
+                for row in &inputs_a {
                     for &val in row {
                         salt.push(if val == 1 { 1u8 } else { 0u8 });
                     }
                 }
             }
 
-            let tau_a = self.alice.calculate_output(inputs.clone())?;
-            let tau_b = self.bob.calculate_output(inputs)?;
+            let tau_a = self.alice.calculate_output(inputs_a)?;
+            let tau_b = self.bob.calculate_output(inputs_b)?;
 
             // Mutual learning update only when outputs match
             if tau_a == tau_b {
@@ -432,6 +487,8 @@ impl KeyExchange {
         // Prepare weights input
         let final_weights = if self.alice.activation_type == ActivationType::Hybrid {
             self.alice.chaotic_transform(self.config.chaotic_iterations)
+        } else if self.alice.activation_type == ActivationType::Hyperchaotic {
+            self.alice.hyperchaotic_transform(self.config.chaotic_iterations)
         } else {
             self.alice.weights.clone()
         };

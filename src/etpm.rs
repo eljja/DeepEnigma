@@ -79,6 +79,9 @@ pub enum ActivationType {
     /// Hybrid mode: Standard sign activation is used for synchronization
     /// convergence, then applies chaotic weight transformation for key hardening.
     Hybrid,
+    /// Hyperchaotic mode: Standard sign activation is used for synchronization,
+    /// then applies 4D hyperchaotic weight transformation for advanced key hardening.
+    Hyperchaotic,
 }
 
 impl ActivationType {
@@ -87,6 +90,7 @@ impl ActivationType {
             "standard" => Some(Self::Standard),
             "chaotic" => Some(Self::Chaotic),
             "hybrid" => Some(Self::Hybrid),
+            "hyperchaotic" => Some(Self::Hyperchaotic),
             _ => None,
         }
     }
@@ -214,7 +218,7 @@ impl ETPM {
 
             // Apply activation function
             let sigma = match self.activation_type {
-                ActivationType::Standard | ActivationType::Hybrid => {
+                ActivationType::Standard | ActivationType::Hybrid | ActivationType::Hyperchaotic => {
                     // Standard sign activation — used during synchronization.
                     // Hybrid mode delegates non-linearity to post-sync key hardening.
                     if h > 0 {
@@ -362,6 +366,58 @@ impl ETPM {
         result
     }
 
+    /// Applies a 4D hyperchaotic transformation to the weight matrix (Part 3-1)
+    /// for advanced key hardening before final key derivation.
+    pub fn hyperchaotic_transform(&self, iterations: u32) -> Vec<Vec<i32>> {
+        use crate::neural::HyperchaoticSystem;
+
+        let mut result = self.weights.clone();
+        let m = (2 * self.l) as i64;
+
+        // Derive initial hyperchaotic seeds deterministically from the synchronized weights
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        let mut sum_z = 0.0;
+        let mut sum_w = 0.0;
+        for i in 0..self.k {
+            for j in 0..self.n {
+                let val = self.weights[i][j] as f64;
+                let idx = i * self.n + j;
+                match idx % 4 {
+                    0 => sum_x += val.cos().abs(),
+                    1 => sum_y += val.sin().abs(),
+                    2 => sum_z += val.tan().abs(),
+                    _ => sum_w += (val.cos() * val.sin()).abs(),
+                }
+            }
+        }
+
+        let mut hc = HyperchaoticSystem::new(sum_x, sum_y, sum_z, sum_w);
+
+        // Run warm up rounds for hyperchaotic state mixing
+        for _ in 0..50 {
+            hc.next();
+        }
+
+        for i in 0..self.k {
+            for j in 0..self.n {
+                let w = self.weights[i][j];
+                let mut x = (w + self.l) as i64;
+
+                for _ in 0..iterations {
+                    hc.next();
+                    // Extract mixed state from hyperchaotic attractor variable x
+                    let mix = (hc.x * 1e9).abs() as u64;
+                    let mixed = (x as u64).wrapping_add(mix);
+                    x = (mixed % (m as u64 + 1)) as i64;
+                }
+
+                result[i][j] = (x - self.l as i64) as i32;
+            }
+        }
+        result
+    }
+
     /// Computes a 32-byte fingerprint of the current weight state.
     pub fn weight_fingerprint(&self) -> Vec<u8> {
         let mut hasher = Sha256::new();
@@ -439,6 +495,11 @@ impl ETPM {
     #[pyo3(name = "chaotic_transform")]
     pub fn py_chaotic_transform(&self, iterations: u32) -> Vec<Vec<i32>> {
         self.chaotic_transform(iterations)
+    }
+
+    #[pyo3(name = "hyperchaotic_transform")]
+    pub fn py_hyperchaotic_transform(&self, iterations: u32) -> Vec<Vec<i32>> {
+        self.hyperchaotic_transform(iterations)
     }
 
     #[pyo3(name = "weight_fingerprint")]

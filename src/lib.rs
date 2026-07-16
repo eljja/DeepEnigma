@@ -8,7 +8,6 @@ pub mod etpm;
 pub mod handshake;
 pub mod protocol;
 pub mod rng;
-#[cfg(feature = "std")]
 pub mod security;
 pub mod neural;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -22,7 +21,6 @@ pub use etpm::{ActivationType, UpdateRule, ETPM};
 pub use handshake::{HandshakeMessage, ParameterNegotiator};
 pub use protocol::{KeyExchange, KeyExchangeConfig, KeyExchangeResult};
 pub use rng::{secure_rng, SecureRng};
-#[cfg(feature = "std")]
 pub use security::{AttackResult, SecurityAnalyzer};
 pub use neural::{DenseLayer, NeuralNet, Activation, hamming_encode, hamming_decode};
 

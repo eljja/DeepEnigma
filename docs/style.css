@@ -982,6 +982,25 @@ footer {
     border-radius: 4px;
     min-width: 44px;
     text-align: center;
+    transition: all 0.3s ease;
+}
+
+.cipher-node.scrambled {
+    background: rgba(255, 75, 92, 0.15);
+    color: #ff4b5c;
+    font-weight: bold;
+    animation: scramblePulse 1.5s infinite alternate;
+}
+
+@keyframes scramblePulse {
+    from {
+        box-shadow: 0 0 4px rgba(255, 75, 92, 0.4);
+        border-color: rgba(255, 75, 92, 0.5);
+    }
+    to {
+        box-shadow: 0 0 12px rgba(255, 75, 92, 0.8);
+        border-color: rgba(255, 75, 92, 1.0);
+    }
 }
 
 .flow-arrow {

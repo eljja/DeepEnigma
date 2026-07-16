@@ -152,6 +152,7 @@
                             </label>
                             <select id="param-act" aria-label="Activation function mode">
                                 <option value="hybrid">Hybrid (Sign-Sync + Chaotic Key)</option>
+                                <option value="hyperchaotic">Hyperchaotic (4D Coupled Map Lattice)</option>
                                 <option value="standard">Standard (Pure Sign)</option>
                             </select>
                         </div>
@@ -171,6 +172,25 @@
                                 <p class="param-info" style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px; line-height: 1.3;">
                                     <span class="ko">경계값 부근의 입력만 선택 전송하여 동기화 속도를 가속화합니다. (0 = 최저 필드)</span>
                                     <span class="en">Filters inputs to boundary fields below H to accelerate synchronization. (0 = lowest field)</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="param-physical-channel-toggle" style="width: auto; margin: 0; cursor: pointer;" aria-label="Enable Physical Layer Correlation">
+                                <span class="ko">물리 계층 채널 결합 (Physical Layer)</span>
+                                <span class="en">Physical Layer Correlation</span>
+                            </label>
+                            <div id="physical-channel-container" style="margin-top: 12px; display: none;">
+                                <label for="param-physical-channel" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span>채널 상관도 R (Correlation R)</span>
+                                    <span class="val" id="val-physical-channel" style="font-weight: bold; color: #00f2fe;">0.95</span>
+                                </label>
+                                <input type="range" id="param-physical-channel" min="0.5" max="1.0" value="0.95" step="0.01" aria-label="Physical Channel Correlation R">
+                                <p class="param-info" style="font-size: 0.75rem; color: #9ca3af; margin-top: 4px; line-height: 1.3;">
+                                    <span class="ko">Alice와 Bob이 측정하는 물리 채널의 환경 상관도입니다. R=1.0이면 완벽히 일치합니다. (R < 0.95는 동기화 지연/실패 유도)</span>
+                                    <span class="en">Environmental correlation of physical channel measured by Alice and Bob. R=1.0 is perfect correlation.</span>
                                 </p>
                             </div>
                         </div>
@@ -286,6 +306,35 @@
                             </p>
                         </div>
 
+                        <!-- Part 2 LWE Scoreboard -->
+                        <div class="control-group" style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 8px; padding: 12px; margin-top: 12px;">
+                            <label style="font-weight: bold; color: var(--primary); display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-shield-halved"></i>
+                                <span class="ko">Part 2: LWE 양자 안전성 평가</span>
+                                <span class="en">LWE Quantum Security Evaluation</span>
+                            </label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; font-size: 0.8rem;">
+                                <div>
+                                    <span class="ko">비밀 차원 (n):</span><span class="en">Dimension (n):</span>
+                                    <strong style="color: #fff;" id="lwe-dim">6016</strong>
+                                </div>
+                                <div>
+                                    <span class="ko">양자화 에러 (σ):</span><span class="en">Error (σ):</span>
+                                    <strong style="color: #fff;" id="lwe-error">3.20</strong>
+                                </div>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 0.85rem; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span class="ko">고전 격자 해독 강도:</span><span class="en">Classical Security:</span>
+                                    <strong style="color: var(--secondary);" id="lwe-classical">128.5 bits</strong>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                                    <span class="ko">양자 격자 해독 강도:</span><span class="en">Quantum Security:</span>
+                                    <strong style="color: var(--green-accent);" id="lwe-quantum">110.2 bits</strong>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="control-group">
                             <label>
                                 <span class="ko">16비트 대칭키 선택 (클릭하여 설정)</span>
@@ -297,6 +346,19 @@
                             <p class="param-info" style="margin-top: 8px;">
                                 <span class="ko">Alice와 Bob은 이 대칭키를 공유합니다. Eve는 이 대칭키 정보가 없습니다.</span>
                                 <span class="en">Alice and Bob share this symmetric key. Eve has no access to it.</span>
+                            </p>
+                        </div>
+
+                        <!-- Part 3 Scrambling Toggle -->
+                        <div class="control-group">
+                            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="param-hyperchaotic-scrambling-toggle" style="width: auto; margin: 0; cursor: pointer;" aria-label="Enable Hyperchaotic Scrambling & Hardening">
+                                <span class="ko">하이퍼카오스 스크램블링 활성화 (Part 3)</span>
+                                <span class="en">Enable Hyperchaotic Scrambling</span>
+                            </label>
+                            <p class="param-info" style="margin-top: 4px;">
+                                <span class="ko">4차원 하이퍼카오스 어트랙터 노이즈를 암호문에 실시간으로 주입하고 복호화 시 상쇄시킵니다. (백색 잡음화 완료)</span>
+                                <span class="en">Injects 4D hyperchaotic attractor noise to the ciphertext and subtracts it during Bob's decryption.</span>
                             </p>
                         </div>
 

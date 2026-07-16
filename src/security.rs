@@ -15,7 +15,6 @@ use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 #[cfg(not(feature = "std"))]
-use alloc::vec;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
@@ -246,6 +245,73 @@ impl SecurityAnalyzer {
     pub fn compute_weight_overlap(w1: Vec<Vec<i32>>, w2: Vec<Vec<i32>>) -> f64 {
         compute_overlap(&w1, &w2)
     }
+
+    /// Computes LWE-based security metrics based on dimensions and quantization parameters (Part 2).
+    pub fn estimate_lwe_security(&self, dimension: usize, modulus: usize, error_std_dev: f64) -> LweSecurityMetrics {
+        let n = dimension as f64;
+        let q = modulus as f64;
+        let sigma = error_std_dev.max(0.1);
+
+        let ratio = q / sigma;
+        let log_ratio = safe_log2(ratio);
+
+        // BKZ block size needed to solve this LWE instance (estimate using LWE hardness heuristics)
+        let beta = (log_ratio * 1.85).max(10.0);
+        
+        // Classical BKZ security level: 0.265 * beta * sqrt(n / ref_dimension)
+        let classical = 0.265 * beta * (n / 500.0).sqrt();
+        // Quantum BKZ security level (core-SVP model): 0.229 * beta * sqrt(n / ref_dimension)
+        let quantum = 0.229 * beta * (n / 500.0).sqrt();
+
+
+        LweSecurityMetrics {
+            dimension,
+            modulus,
+            error_std_dev,
+            classical_security_bits: classical,
+            quantum_security_bits: quantum,
+        }
+    }
+}
+
+/// LWE Security Evaluation Metrics for Neural Cryptography.
+#[cfg_attr(feature = "extension-module", pyclass)]
+#[derive(Clone, Debug)]
+pub struct LweSecurityMetrics {
+    pub dimension: usize,
+    pub modulus: usize,
+    pub error_std_dev: f64,
+    pub classical_security_bits: f64,
+    pub quantum_security_bits: f64,
+}
+
+#[cfg(feature = "extension-module")]
+#[pymethods]
+impl LweSecurityMetrics {
+    #[getter]
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
+    #[getter]
+    pub fn modulus(&self) -> usize {
+        self.modulus
+    }
+
+    #[getter]
+    pub fn error_std_dev(&self) -> f64 {
+        self.error_std_dev
+    }
+
+    #[getter]
+    pub fn classical_security_bits(&self) -> f64 {
+        self.classical_security_bits
+    }
+
+    #[getter]
+    pub fn quantum_security_bits(&self) -> f64 {
+        self.quantum_security_bits
+    }
 }
 
 // Python bindings for SecurityAnalyzer
@@ -277,6 +343,11 @@ impl SecurityAnalyzer {
     pub fn py_compute_weight_overlap(w1: Vec<Vec<i32>>, w2: Vec<Vec<i32>>) -> f64 {
         Self::compute_weight_overlap(w1, w2)
     }
+
+    #[pyo3(name = "estimate_lwe_security")]
+    pub fn py_estimate_lwe_security(&self, dimension: usize, modulus: usize, error_std_dev: f64) -> LweSecurityMetrics {
+        self.estimate_lwe_security(dimension, modulus, error_std_dev)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,30 +376,35 @@ fn shannon_entropy(data: &[u8]) -> f64 {
 
     let len = data.len() as f64;
     
-    // log2 implementation supporting both std and no_std
-    let log2_fn = |x: f64| -> f64 {
-        #[cfg(feature = "std")]
-        {
-            x.log2()
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            // Integer-based log2 approximation using bit manipulation.
-            // Convert to bits, extract exponent from IEEE 754 representation.
-            let bits = x.to_bits();
-            let exponent = ((bits >> 52) & 0x7FF) as i64 - 1023;
-            let mantissa = (bits & 0x000FFFFFFFFFFFFF) as f64 / (1u64 << 52) as f64;
-            // Linear approximation: log2(x) ≈ exponent + mantissa
-            exponent as f64 + mantissa
-        }
-    };
-
+    // safe_log2 implementation supporting both std and no_std
     counts
         .iter()
         .filter(|&&c| c > 0)
         .map(|&c| {
             let p = c as f64 / len;
-            -p * log2_fn(p)
+            -p * safe_log2(p)
         })
         .sum()
 }
+
+/// Helper function to compute log2 in both std and no_std environments.
+fn safe_log2(x: f64) -> f64 {
+    #[cfg(feature = "std")]
+    {
+        x.log2()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        if x <= 0.0 {
+            return 0.0;
+        }
+        // Integer-based log2 approximation using bit manipulation.
+        // Convert to bits, extract exponent from IEEE 754 representation.
+        let bits = x.to_bits();
+        let exponent = ((bits >> 52) & 0x7FF) as i64 - 1023;
+        let mantissa = (bits & 0x000FFFFFFFFFFFFF) as f64 / (1u64 << 52) as f64;
+        // Linear approximation: log2(x) ≈ exponent + mantissa
+        exponent as f64 + mantissa
+    }
+}
+

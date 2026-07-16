@@ -54,6 +54,7 @@ pub fn run_wasm_key_exchange(
     activation_type: String,
     adaptive_l_scaling: bool,
     active_query_threshold: i32,
+    physical_channel_correlation: f64,
 ) -> Result<WasmKeyExchangeResult, JsValue> {
     let mut config = KeyExchangeConfig::new(
         k,
@@ -68,6 +69,10 @@ pub fn run_wasm_key_exchange(
 
     if active_query_threshold >= 0 {
         config.active_query_threshold = Some(active_query_threshold);
+    }
+
+    if physical_channel_correlation >= 0.0 {
+        config.physical_channel_correlation = Some(physical_channel_correlation);
     }
 
     let mut exchange = KeyExchange::new(&config)
@@ -135,6 +140,15 @@ impl WasmETPM {
 
     pub fn chaotic_transform_flat(&self, iterations: u32) -> Vec<i32> {
         let transformed = self.inner.chaotic_transform(iterations);
+        let mut flat = Vec::new();
+        for row in transformed {
+            flat.extend_from_slice(&row);
+        }
+        flat
+    }
+
+    pub fn hyperchaotic_transform_flat(&self, iterations: u32) -> Vec<i32> {
+        let transformed = self.inner.hyperchaotic_transform(iterations);
         let mut flat = Vec::new();
         for row in transformed {
             flat.extend_from_slice(&row);
@@ -311,6 +325,88 @@ impl WasmIntegerNeuralNet {
 
     pub fn forward(&self, input: Vec<i8>) -> Vec<i8> {
         self.inner.forward(&input)
+    }
+
+    pub fn forward_scrambled(&self, input: Vec<i8>, hc: &mut WasmHyperchaoticSystem, scale_out: f64) -> Vec<i8> {
+        self.inner.forward_scrambled(&input, &mut hc.inner, scale_out)
+    }
+
+    pub fn decrypt_scrambled(&self, scrambled_cipher: Vec<i8>, input_key_int8: Vec<i8>, hc: &mut WasmHyperchaoticSystem, scale_out_alice: f64) -> Vec<i8> {
+        self.inner.decrypt_scrambled(&scrambled_cipher, &input_key_int8, &mut hc.inner, scale_out_alice)
+    }
+}
+
+// ── WASM Bindings for Hyperchaotic System ───────────────────────────────────
+
+#[wasm_bindgen]
+pub struct WasmHyperchaoticSystem {
+    inner: crate::neural::HyperchaoticSystem,
+}
+
+#[wasm_bindgen]
+impl WasmHyperchaoticSystem {
+    #[wasm_bindgen(constructor)]
+    pub fn new(x_init: f64, y_init: f64, z_init: f64, w_init: f64) -> Self {
+        Self {
+            inner: crate::neural::HyperchaoticSystem::new(x_init, y_init, z_init, w_init),
+        }
+    }
+
+    pub fn next(&mut self) {
+        self.inner.next();
+    }
+
+    pub fn generate_sequence(&mut self, len: usize) -> Vec<f64> {
+        self.inner.generate_sequence(len)
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn x(&self) -> f64 { self.inner.x }
+    #[wasm_bindgen(getter)]
+    pub fn y(&self) -> f64 { self.inner.y }
+    #[wasm_bindgen(getter)]
+    pub fn z(&self) -> f64 { self.inner.z }
+    #[wasm_bindgen(getter)]
+    pub fn w(&self) -> f64 { self.inner.w }
+}
+
+// ── WASM Bindings for LWE Security Estimation ───────────────────────────────
+
+#[wasm_bindgen]
+pub struct WasmLweSecurityMetrics {
+    pub dimension: usize,
+    pub modulus: usize,
+    pub error_std_dev: f64,
+    pub classical_security_bits: f64,
+    pub quantum_security_bits: f64,
+}
+
+#[wasm_bindgen]
+pub fn estimate_wasm_lwe_security(
+    dimension: usize,
+    modulus: usize,
+    error_std_dev: f64,
+) -> WasmLweSecurityMetrics {
+    let analyzer = crate::security::SecurityAnalyzer::new(2, 10, 3);
+    let metrics = analyzer.estimate_lwe_security(dimension, modulus, error_std_dev);
+    WasmLweSecurityMetrics {
+        dimension: metrics.dimension,
+        modulus: metrics.modulus,
+        error_std_dev: metrics.error_std_dev,
+        classical_security_bits: metrics.classical_security_bits,
+        quantum_security_bits: metrics.quantum_security_bits,
+    }
+}
+
+// Extend WasmNeuralNet with scrambled wrappers
+#[wasm_bindgen]
+impl WasmNeuralNet {
+    pub fn forward_scrambled(&self, input: Vec<f64>, hc: &mut WasmHyperchaoticSystem) -> Vec<f64> {
+        self.inner.forward_scrambled(&input, &mut hc.inner)
+    }
+
+    pub fn decrypt_scrambled(&self, scrambled_cipher: Vec<f64>, input_key: Vec<f64>, hc: &mut WasmHyperchaoticSystem) -> Vec<f64> {
+        self.inner.decrypt_scrambled(&scrambled_cipher, &input_key, &mut hc.inner)
     }
 }
 
