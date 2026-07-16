@@ -1,6 +1,9 @@
 // DeepEnigma Interactive Web Simulator & App Logic
 import init, { WasmETPM } from './wasm/deep_enigma.js';
 
+let wasmEngine = false;
+let wasmInstance = null;
+
 // --- TREE PARITY MACHINE SIMULATOR IN JS (FALLBACK) ---
 class JSTPM {
     constructor(k, n, l, activationType) {
@@ -297,8 +300,10 @@ function updateEngineBadge(isWasm) {
 }
 
 // Start loading WASM in background
-init().then(() => {
+init().then((instance) => {
     console.log("DeepEnigma Cryptographic WASM Core Engine Loaded successfully.");
+    wasmEngine = true;
+    wasmInstance = instance;
     TPMClass = WasmTPMWrapper;
     updateEngineBadge(true);
     // Trigger reset to swap instances to WASM if not running
@@ -307,6 +312,8 @@ init().then(() => {
     }
 }).catch(err => {
     console.warn("WASM Engine load failed, using pure JS fallback:", err);
+    wasmEngine = false;
+    wasmInstance = null;
     TPMClass = JSTPM;
     updateEngineBadge(false);
 });
