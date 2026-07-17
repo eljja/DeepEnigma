@@ -1,8 +1,16 @@
 // DeepEnigma Interactive Web Simulator & App Logic
-import init, { WasmETPM } from './wasm/deep_enigma.js';
+import init, { 
+    WasmETPM, 
+    WasmIntegerNeuralNet, 
+    WasmHyperchaoticSystem,
+    wasm_quantize, 
+    wasm_dequantize, 
+    wasm_hamming_encode, 
+    wasm_hamming_decode,
+    estimate_wasm_lwe_security
+} from './wasm/deep_enigma.js';
 
 let wasmEngine = false;
-let wasmInstance = null;
 
 // --- TREE PARITY MACHINE SIMULATOR IN JS (FALLBACK) ---
 class JSTPM {
@@ -300,10 +308,9 @@ function updateEngineBadge(isWasm) {
 }
 
 // Start loading WASM in background
-init().then((instance) => {
+init().then(() => {
     console.log("DeepEnigma Cryptographic WASM Core Engine Loaded successfully.");
     wasmEngine = true;
-    wasmInstance = instance;
     TPMClass = WasmTPMWrapper;
     updateEngineBadge(true);
     // Trigger reset to swap instances to WASM if not running
@@ -313,7 +320,6 @@ init().then((instance) => {
 }).catch(err => {
     console.warn("WASM Engine load failed, using pure JS fallback:", err);
     wasmEngine = false;
-    wasmInstance = null;
     TPMClass = JSTPM;
     updateEngineBadge(false);
 });
@@ -824,9 +830,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let classical = 0.0;
         let quantum = 0.0;
 
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                let metrics = wasmInstance.estimate_wasm_lwe_security(dim, modulus, error);
+                let metrics = estimate_wasm_lwe_security(dim, modulus, error);
                 classical = metrics.classical_security_bits;
                 quantum = metrics.quantum_security_bits;
             } catch (e) {
@@ -1082,9 +1088,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 1. Encode with Hamming(7,4) ECC
         let encodedBits;
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                encodedBits = wasmInstance.wasm_hamming_encode(msgBits);
+                encodedBits = wasm_hamming_encode(msgBits);
             } catch (e) {
                 console.warn('WASM ECC failed, falling back to JS.', e);
                 encodedBits = jsHammingEncode(msgBits);
@@ -1100,15 +1106,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Quantize Alice Inputs to INT8
         const aliceInputFloat = [...encodedBits, ...keyBits];
         const aliceInputInt8 = aliceInputFloat.map(v => {
-            return wasmEngine && wasmInstance 
-                ? wasmInstance.wasm_quantize(v, scaleInAlice)
+            return wasmEngine 
+                ? wasm_quantize(v, scaleInAlice)
                 : jsQuantize(v, scaleInAlice);
         });
 
         let cipherInt8;
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                const aliceNet = new wasmInstance.WasmIntegerNeuralNet();
+                const aliceNet = new WasmIntegerNeuralNet();
                 loadedWeights.alice.layers.forEach(layer => {
                     const flatWeights = layer.weights_int8.flat();
                     const outCh = layer.biases_int32.length;
@@ -1138,9 +1144,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 else sw += bit * 0.05;
             });
 
-            if (wasmEngine && wasmInstance) {
+            if (wasmEngine) {
                 try {
-                    let hc = new wasmInstance.WasmHyperchaoticSystem(sx, sy, sz, sw);
+                    let hc = new WasmHyperchaoticSystem(sx, sy, sz, sw);
                     h_noise = hc.generate_sequence(cipherInt8.length);
                 } catch (e) {
                     console.warn('WASM Hyperchaotic failed, falling back to JS.', e);
@@ -1174,8 +1180,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             cipherInt8 = cipherInt8.map((c, idx) => {
-                let h_q = wasmEngine && wasmInstance 
-                    ? wasmInstance.wasm_quantize(h_noise[idx], scaleOutAlice)
+                let h_q = wasmEngine 
+                    ? wasm_quantize(h_noise[idx], scaleOutAlice)
                     : jsQuantize(h_noise[idx], scaleOutAlice);
                 let sum = c + h_q;
                 if (sum > 127) sum -= 256;
@@ -1186,8 +1192,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Dequantize cipher floats for compatibility/display
         const cipherFloats = cipherInt8.map(v => {
-            return wasmEngine && wasmInstance
-                ? wasmInstance.wasm_dequantize(v, scaleOutAlice)
+            return wasmEngine
+                ? wasm_dequantize(v, scaleOutAlice)
                 : jsDequantize(v, scaleOutAlice);
         });
 
@@ -1216,8 +1222,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Bob input: Quantized Ciphertext + Quantized Key
         const bobKeyBitsInt8 = keyBits.map(v => {
-            return wasmEngine && wasmInstance 
-                ? wasmInstance.wasm_quantize(v, scaleInBob)
+            return wasmEngine 
+                ? wasm_quantize(v, scaleInBob)
                 : jsQuantize(v, scaleInBob);
         });
 
@@ -1225,8 +1231,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (doScramble) {
             // Bob decrypts by first subtracting the identical hyperchaotic sequence
             bobCipherInputInt8 = bobCipherInputInt8.map((c, idx) => {
-                let h_q = wasmEngine && wasmInstance 
-                    ? wasmInstance.wasm_quantize(h_noise[idx], scaleOutAlice)
+                let h_q = wasmEngine 
+                    ? wasm_quantize(h_noise[idx], scaleOutAlice)
                     : jsQuantize(h_noise[idx], scaleOutAlice);
                 let diff = c - h_q;
                 if (diff > 127) diff -= 256;
@@ -1237,9 +1243,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const bobInputInt8 = [...bobCipherInputInt8, ...bobKeyBitsInt8];
 
         let bobDecodedInt8;
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                const bobNet = new wasmInstance.WasmIntegerNeuralNet();
+                const bobNet = new WasmIntegerNeuralNet();
                 loadedWeights.bob.layers.forEach(layer => {
                     const flatWeights = layer.weights_int8.flat();
                     const outCh = layer.biases_int32.length;
@@ -1257,8 +1263,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Dequantize Bob output to bits
         const bobDecodedFloat = bobDecodedInt8.map(v => {
-            return wasmEngine && wasmInstance
-                ? wasmInstance.wasm_dequantize(v, scaleOutBob)
+            return wasmEngine
+                ? wasm_dequantize(v, scaleOutBob)
                 : jsDequantize(v, scaleOutBob);
         });
         const bobCodedBits = bobDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
@@ -1266,9 +1272,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Bob Decode Hamming(7,4) ECC
         let bobFinalBits;
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                bobFinalBits = wasmInstance.wasm_hamming_decode(bobCodedBits);
+                bobFinalBits = wasm_hamming_decode(bobCodedBits);
             } catch (e) {
                 bobFinalBits = jsHammingDecode(bobCodedBits);
             }
@@ -1282,16 +1288,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // 4. Eve Decryption (No Key - Zero Key)
         const zeroKey = new Array(16).fill(0);
         const eveKeyBitsInt8 = zeroKey.map(v => {
-            return wasmEngine && wasmInstance 
-                ? wasmInstance.wasm_quantize(v, scaleInBob)
+            return wasmEngine 
+                ? wasm_quantize(v, scaleInBob)
                 : jsQuantize(v, scaleInBob);
         });
         const eveInputInt8 = [...cipherInt8, ...eveKeyBitsInt8];
         let eveDecodedInt8;
 
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                const eveNet = new wasmInstance.WasmIntegerNeuralNet();
+                const eveNet = new WasmIntegerNeuralNet();
                 loadedWeights.bob.layers.forEach(layer => {
                     const flatWeights = layer.weights_int8.flat();
                     const outCh = layer.biases_int32.length;
@@ -1308,8 +1314,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Dequantize Eve output to bits
         const eveDecodedFloat = eveDecodedInt8.map(v => {
-            return wasmEngine && wasmInstance
-                ? wasmInstance.wasm_dequantize(v, scaleOutBob)
+            return wasmEngine
+                ? wasm_dequantize(v, scaleOutBob)
                 : jsDequantize(v, scaleOutBob);
         });
         const eveCodedBits = eveDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
@@ -1317,9 +1323,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Eve Decode Hamming(7,4) ECC
         let eveFinalBits;
-        if (wasmEngine && wasmInstance) {
+        if (wasmEngine) {
             try {
-                eveFinalBits = wasmInstance.wasm_hamming_decode(eveCodedBits);
+                eveFinalBits = wasm_hamming_decode(eveCodedBits);
             } catch (e) {
                 eveFinalBits = jsHammingDecode(eveCodedBits);
             }
