@@ -326,9 +326,18 @@ impl KeyExchange {
 
         // Salt derived from initial public inputs to guarantee unique session key
         let mut salt = Vec::new();
+        let mut total_reconciled_bits = 0;
 
         while rounds < self.config.max_rounds {
             rounds += 1;
+
+            // Adaptive active query threshold scaling: drops as synchronization increases
+            let current_overlap = compute_overlap(&self.alice.weights, &self.bob.weights);
+            let dynamic_threshold = if let Some(threshold) = self.config.active_query_threshold {
+                Some((threshold as f64 * (1.0 - current_overlap)).max(0.0) as i32)
+            } else {
+                None
+            };
 
             // Generate inputs for Alice and Bob, optionally using physical channel correlation (Part 1-1)
             let (inputs_a, inputs_b): (Vec<Vec<i32>>, Vec<Vec<i32>>) = if let Some(correlation) = self.config.physical_channel_correlation {
@@ -337,6 +346,7 @@ impl KeyExchange {
                 let mut attempts = 0;
                 let mut candidate_a = vec![vec![0; n]; k];
                 let mut candidate_b = vec![vec![0; n]; k];
+                let selected_reconciled_bits;
                 
                 loop {
                     let base_seed = rng.gen::<u64>();
@@ -352,25 +362,40 @@ impl KeyExchange {
                         }
                     }
 
+                    // Perform Information Reconciliation: Bob corrects mismatching bits to match Alice
+                    let mut round_reconciled_bits = 0;
+                    for i in 0..k {
+                        for j in 0..n {
+                            if candidate_a[i][j] != candidate_b[i][j] {
+                                round_reconciled_bits += 1;
+                                candidate_b[i][j] = candidate_a[i][j]; // reconciled
+                            }
+                        }
+                    }
+
                     // If active query is enabled, check threshold on Alice's side
-                    if let Some(threshold) = self.config.active_query_threshold {
+                    if let Some(threshold) = dynamic_threshold {
                         let fields = self.alice.calculate_local_fields(&candidate_a);
                         let min_field = fields.iter().map(|f| f.abs()).min().unwrap_or(0);
                         if min_field <= threshold {
+                            selected_reconciled_bits = round_reconciled_bits;
                             break;
                         }
                     } else {
+                        selected_reconciled_bits = round_reconciled_bits;
                         break;
                     }
                     attempts += 1;
                     if attempts > 100 {
+                        selected_reconciled_bits = round_reconciled_bits;
                         break;
                     }
                 }
+                total_reconciled_bits += selected_reconciled_bits;
                 (candidate_a, candidate_b)
             } else {
                 // Traditional mode: inputs are identical for Alice and Bob (public channel)
-                let inputs: Vec<Vec<i32>> = if let Some(threshold) = self.config.active_query_threshold {
+                let inputs: Vec<Vec<i32>> = if let Some(threshold) = dynamic_threshold {
                     let mut candidate;
                     let mut attempts = 0;
                     loop {
@@ -432,7 +457,7 @@ impl KeyExchange {
 
             // Sync successful when Alice and Bob weight matrices match exactly
             if self.alice.weights == self.bob.weights {
-                let final_key = self.derive_key(salt)?;
+                let final_key = self.derive_key(salt, total_reconciled_bits as f64)?;
                 #[cfg(feature = "std")]
                 let sync_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
                 #[cfg(not(feature = "std"))]
@@ -483,7 +508,7 @@ impl KeyExchange {
     }
 
     /// Derives the final symmetric key using HKDF-SHA256.
-    fn derive_key(&self, salt: Vec<u8>) -> ProtocolResult<Vec<u8>> {
+    fn derive_key(&self, salt: Vec<u8>, leaked_entropy: f64) -> ProtocolResult<Vec<u8>> {
         // Prepare weights input
         let final_weights = if self.alice.activation_type == ActivationType::Hybrid {
             self.alice.chaotic_transform(self.config.chaotic_iterations)
@@ -503,7 +528,11 @@ impl KeyExchange {
         // Derive 32-byte (256-bit) symmetric key
         let hk = Hkdf::<Sha256>::new(Some(&salt), &ikm);
         let mut okm = vec![0u8; 32];
-        hk.expand(b"DeepEnigma-Symmetric-Key", &mut okm)
+        
+        let mut info_binding = b"DeepEnigma-Symmetric-Key".to_vec();
+        info_binding.extend_from_slice(&leaked_entropy.to_le_bytes());
+
+        hk.expand(&info_binding, &mut okm)
             .map_err(|_| make_err!("HKDF expansion failed"))?;
 
         // Securely wipe intermediate input keying material

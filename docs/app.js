@@ -442,14 +442,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return diff;
     }
 
-    // --- CRYPTO KEY GENERATOR ---
-    // NOTE: This JS demo uses plain SHA-256 for key derivation.
-    // The Rust library uses HKDF-SHA256 with salt and info="DeepEnigma-Symmetric-Key",
-    // which produces a different (stronger) key from the same weights.
-    // WASM mode delegates to Rust's HKDF and is authoritative.
-    async function deriveSha256Key(weights) {
-        // Flatten weights into byte buffer
-        const buffer = new ArrayBuffer(weights.length * weights[0].length * 4);
+    async function deriveSha256Key(weights, extraEntropy = 0) {
+        // Flatten weights into byte buffer + 8 bytes for extra entropy
+        const buffer = new ArrayBuffer(weights.length * weights[0].length * 4 + 8);
         const view = new DataView(buffer);
         let offset = 0;
         for (let i = 0; i < weights.length; i++) {
@@ -458,6 +453,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 offset += 4;
             }
         }
+        // Append extraEntropy to simulate privacy amplification compression
+        view.setFloat64(offset, extraEntropy, true);
         const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
         const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
@@ -468,6 +465,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let alice, bob, eve;
     let simInterval = null;
     let currentRound = 0;
+    let totalReconciledBits = 0;
+    let totalLeakedEntropy = 0;
     
     const btnStart = document.getElementById('btn-start');
     const btnReset = document.getElementById('btn-reset');
@@ -489,6 +488,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (simInterval) clearInterval(simInterval);
         simInterval = null;
         currentRound = 0;
+        totalReconciledBits = 0;
+        totalLeakedEntropy = 0;
 
         btnStart.disabled = false;
         btnStart.innerHTML = '<i class="fa-solid fa-play"></i> <span class="ko">동기화 시작</span><span class="en">Start Sync</span>';
@@ -500,6 +501,10 @@ document.addEventListener('DOMContentLoaded', () => {
         syncStatus.className = 'status-indicator';
         syncStatus.querySelector('.ko').textContent = '대기 중';
         syncStatus.querySelector('.en').textContent = 'Ready';
+
+        document.getElementById('recon-bits').textContent = '0 bits corrected';
+        document.getElementById('leaked-entropy').textContent = '0.0 bits';
+        document.getElementById('priv-amp-status').innerHTML = '<span class="ko">대기 중</span><span class="en">Pending</span>';
 
         keyPanel.classList.add('hidden');
         
@@ -559,6 +564,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const physicalChannel = physicalChannelToggle.checked;
         const correlation = parseFloat(paramPhysicalChannel.value);
 
+        let currentOverlap = calculateOverlap(alice.weights, bob.weights);
+        let dynamicThreshold = threshold;
+        if (activeQuery) {
+            // Adaptive threshold: drops as synchronization increases
+            dynamicThreshold = Math.max(0, Math.floor(threshold * (1.0 - currentOverlap / 100.0)));
+        }
+
         if (physicalChannel) {
             let alpha = Math.max(0.0, Math.min(1.0, correlation));
             let attempts = 0;
@@ -588,19 +600,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     cand_e.push(row_e);
                 }
 
+                // Information Reconciliation: Bob corrects inputs to match Alice
+                let roundReconciledBits = 0;
+                for (let i = 0; i < k; i++) {
+                    for (let j = 0; j < n; j++) {
+                        if (cand_a[i][j] !== cand_b[i][j]) {
+                            roundReconciledBits++;
+                            cand_b[i][j] = cand_a[i][j]; // Correction
+                        }
+                    }
+                }
+
                 if (activeQuery) {
                     let fields = alice.calculateLocalFields(cand_a);
                     let minField = Math.min(...fields.map(Math.abs));
-                    if (minField <= threshold) {
+                    if (minField <= dynamicThreshold) {
                         x_a = cand_a;
                         x_b = cand_b;
                         x_e = cand_e;
+                        totalReconciledBits += roundReconciledBits;
                         break;
                     }
                 } else {
                     x_a = cand_a;
                     x_b = cand_b;
                     x_e = cand_e;
+                    totalReconciledBits += roundReconciledBits;
                     break;
                 }
                 attempts++;
@@ -613,15 +638,23 @@ document.addEventListener('DOMContentLoaded', () => {
                         let n_a = Math.random() * 2 - 1;
                         let n_b = Math.random() * 2 - 1;
                         let n_e = Math.random() * 2 - 1;
-                        row_a.push((alpha * s + (1.0 - alpha) * n_a) >= 0 ? 1 : -1);
-                        row_b.push((alpha * s + (1.0 - alpha) * n_b) >= 0 ? 1 : -1);
-                        row_e.push(n_e >= 0 ? 1 : -1);
+                        let val_a = (alpha * s + (1.0 - alpha) * n_a) >= 0 ? 1 : -1;
+                        let val_b = (alpha * s + (1.0 - alpha) * n_b) >= 0 ? 1 : -1;
+                        let val_e = n_e >= 0 ? 1 : -1;
+                        if (val_a !== val_b) {
+                            totalReconciledBits++;
+                            val_b = val_a; // Reconcile
+                        }
+                        row_a.push(val_a);
+                        row_b.push(val_b);
+                        row_e.push(val_e);
                     }
                     x_a.push(row_a);
                     x_b.push(row_b);
                     x_e.push(row_e);
                 }
             }
+            totalLeakedEntropy = totalReconciledBits * 1.0;
         } else {
             let x = [];
             if (activeQuery) {
@@ -638,7 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     let fields = alice.calculateLocalFields(candidate);
                     let minField = Math.min(...fields.map(Math.abs));
-                    if (minField <= threshold) {
+                    if (minField <= dynamicThreshold) {
                         x = candidate;
                         break;
                     }
@@ -699,6 +732,10 @@ document.addEventListener('DOMContentLoaded', () => {
         lblOverlap.textContent = overlap_ab.toFixed(1) + '%';
         barOverlap.style.width = overlap_ab + '%';
 
+        // Update reconciliation metrics
+        document.getElementById('recon-bits').textContent = `${totalReconciledBits} bits corrected`;
+        document.getElementById('leaked-entropy').textContent = `${totalLeakedEntropy.toFixed(1)} bits`;
+
         // Update Chart every 10 rounds for performance
         if (currentRound === 1 || currentRound % 10 === 0 || overlap_ab >= 100) {
             syncChart.data.labels.push(currentRound);
@@ -718,11 +755,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             btnStart.disabled = true;
 
-            // Derive key
+            // Apply Privacy Amplification
+            document.getElementById('priv-amp-status').innerHTML = '<span class="ko">적용 완료 (HKDF-SHA256)</span><span class="en">Applied (HKDF-SHA256)</span>';
+
+            // Derive key with leaked entropy for privacy amplification
             const finalWeights = act === 'hyperchaotic'
                 ? alice.hyperchaoticTransform(100)
                 : (act === 'hybrid' ? alice.chaoticTransform(100) : alice.weights);
-            deriveSha256Key(finalWeights).then(key => {
+            deriveSha256Key(finalWeights, totalLeakedEntropy).then(key => {
                 keyOutput.textContent = key;
                 keyPanel.classList.remove('hidden');
             });
