@@ -967,10 +967,64 @@ footer {
 
 /* Float value nodes representing ciphertext */
 .ciphertext-container {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
     gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 8px;
+    padding: 4px 0;
+}
+
+/* Node Grouping Styles for Neural flow */
+.node-group-container {
+    display: flex;
+    gap: 15px;
+    width: 100%;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.node-group-box {
+    flex: 1;
+    min-width: 180px;
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.node-group-box.payload-group {
+    border-color: rgba(0, 242, 254, 0.15);
+    background: rgba(0, 242, 254, 0.01);
+}
+
+.node-group-box.key-group {
+    border-color: rgba(0, 245, 160, 0.15);
+    background: rgba(0, 245, 160, 0.01);
+}
+
+.node-group-box.ciphertext-group {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.node-group-title {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.payload-group .node-group-title {
+    color: var(--primary);
+}
+
+.key-group .node-group-title {
+    color: var(--green-accent);
+}
+
+.ciphertext-group .node-group-title {
+    color: #fff;
 }
 
 .cipher-node {

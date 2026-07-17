@@ -1042,18 +1042,84 @@ document.addEventListener('DOMContentLoaded', () => {
     function visualizeNodes(containerId, bits, tooltipValues) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
-        bits.forEach((bit, idx) => {
-            const circle = document.createElement('div');
-            circle.className = `node-circle ${bit >= 0.5 ? 'active-one' : 'active-zero'}`;
-            circle.textContent = bit >= 0.5 ? '1' : '0';
+
+        const total = bits.length;
+        if (total === 44 || total === 60) {
+            // Grouped view!
+            const groupContainer = document.createElement('div');
+            groupContainer.className = 'node-group-container';
+
+            const payloadSize = total === 44 ? 28 : 44;
+
+            // 1. Payload Box
+            const payloadBox = document.createElement('div');
+            payloadBox.className = `node-group-box ${total === 44 ? 'payload-group' : 'ciphertext-group'}`;
             
-            let titleText = `Node ${idx}: ${bit}`;
-            if (tooltipValues && tooltipValues[idx] !== undefined) {
-                titleText += ` (Quantized INT8: ${tooltipValues[idx]})`;
-            }
-            circle.setAttribute('title', titleText);
-            container.appendChild(circle);
-        });
+            const payloadTitle = document.createElement('div');
+            payloadTitle.className = 'node-group-title';
+            payloadTitle.innerHTML = total === 44 
+                ? '<span><i class="fa-solid fa-envelope"></i> Payload (28-bit ECC)</span>' 
+                : '<span><i class="fa-solid fa-lock"></i> Received Ciphertext (44-dim)</span>';
+            payloadBox.appendChild(payloadTitle);
+
+            const payloadNodesRow = document.createElement('div');
+            payloadNodesRow.className = 'node-row';
+
+            // 2. Key Box
+            const keyBox = document.createElement('div');
+            keyBox.className = 'node-group-box key-group';
+            
+            const keyTitle = document.createElement('div');
+            keyTitle.className = 'node-group-title';
+            keyTitle.innerHTML = '<span><i class="fa-solid fa-key"></i> Key (16-bit)</span>';
+            keyBox.appendChild(keyTitle);
+
+            const keyNodesRow = document.createElement('div');
+            keyNodesRow.className = 'node-row';
+
+            // Create nodes and sort into boxes
+            bits.forEach((bit, idx) => {
+                const circle = document.createElement('div');
+                circle.className = `node-circle ${bit >= 0.5 ? 'active-one' : 'active-zero'}`;
+                circle.textContent = bit >= 0.5 ? '1' : '0';
+                
+                let titleText = `Node ${idx}: ${bit}`;
+                if (tooltipValues && tooltipValues[idx] !== undefined) {
+                    titleText += ` (Quantized INT8: ${tooltipValues[idx]})`;
+                }
+                circle.setAttribute('title', titleText);
+
+                if (idx < payloadSize) {
+                    payloadNodesRow.appendChild(circle);
+                } else {
+                    keyNodesRow.appendChild(circle);
+                }
+            });
+
+            payloadBox.appendChild(payloadNodesRow);
+            keyBox.appendChild(keyNodesRow);
+
+            groupContainer.appendChild(payloadBox);
+            groupContainer.appendChild(keyBox);
+            container.appendChild(groupContainer);
+        } else {
+            // Standard flat list fallback
+            const row = document.createElement('div');
+            row.className = 'node-row';
+            bits.forEach((bit, idx) => {
+                const circle = document.createElement('div');
+                circle.className = `node-circle ${bit >= 0.5 ? 'active-one' : 'active-zero'}`;
+                circle.textContent = bit >= 0.5 ? '1' : '0';
+                
+                let titleText = `Node ${idx}: ${bit}`;
+                if (tooltipValues && tooltipValues[idx] !== undefined) {
+                    titleText += ` (Quantized INT8: ${tooltipValues[idx]})`;
+                }
+                circle.setAttribute('title', titleText);
+                row.appendChild(circle);
+            });
+            container.appendChild(row);
+        }
     }
 
     // INT8 Quantization Helpers in JS
