@@ -989,7 +989,16 @@ document.addEventListener('DOMContentLoaded', () => {
             let charCode = 0;
             const slice = bits.slice(offset, offset + 8);
             for (let b = 0; b < 8; b++) {
-                if (slice[b]     // Visualize nodes in container helper with quantized integer tooltips
+                if (slice[b] >= 0.5) {
+                    charCode |= (1 << (7 - b));
+                }
+            }
+            text += String.fromCharCode(charCode);
+        }
+        return text;
+    }
+
+    // Visualize nodes in container helper with quantized integer tooltips
     function visualizeNodes(containerId, bits, tooltipValues) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
