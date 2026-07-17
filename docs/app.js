@@ -1192,6 +1192,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Trigger run encryption
     const btnNeuralRun = document.getElementById('btn-neural-run');
+    
+    // Intermediate results storage for block-by-block visualization
+    let blockInputsAlice = [];
+    let blockCipherInt8 = [];
+    let blockCipherFloats = [];
+    let blockDecodedBitsBob = [];
+    let blockDecodedInt8Bob = [];
+    let blockDecodedBitsEve = [];
+    let blockDecodedInt8Eve = [];
+    let blockPlaintexts = [];
+    let doScrambleGlobal = false;
+
+    // Helper function to update visualization for a specific block
+    function updateVisualizationForBlock(idx) {
+        if (blockInputsAlice.length === 0 || idx < 0 || idx >= blockInputsAlice.length) return;
+
+        const scaleOutAlice = loadedWeights.alice.layers[loadedWeights.alice.layers.length - 1].scale_out;
+
+        // Render Alice Nodes (inputs shown as binary with INT8 values in tooltip)
+        visualizeNodes('neural-alice-nodes', blockInputsAlice[idx].float, blockInputsAlice[idx].int8);
+
+        // Render Ciphertext INT8 representations
+        const cipherContainer = document.getElementById('neural-ciphertext-floats');
+        cipherContainer.innerHTML = '';
+        blockCipherInt8[idx].forEach((val, cIdx) => {
+            const box = document.createElement('div');
+            box.className = 'cipher-node';
+            if (doScrambleGlobal) {
+                box.classList.add('scrambled');
+                box.style.boxShadow = '0 0 8px rgba(255, 75, 92, 0.6)';
+                box.style.border = '1px solid rgba(255, 75, 92, 0.8)';
+            }
+            box.textContent = val;
+            box.setAttribute('title', `Float value: ${blockCipherFloats[idx][cIdx].toFixed(4)}${doScrambleGlobal ? ' [Scrambled with Hyperchaos]' : ''}`);
+            cipherContainer.appendChild(box);
+        });
+
+        // Render Bob Nodes
+        visualizeNodes('neural-bob-nodes', blockDecodedBitsBob[idx], blockDecodedInt8Bob[idx]);
+
+        // Render Eve Nodes
+        visualizeNodes('neural-eve-nodes', blockDecodedBitsEve[idx], blockDecodedInt8Eve[idx]);
+    }
+
+    // Set up dropdown change listener
+    const blockSelect = document.getElementById('neural-block-select');
+    blockSelect.addEventListener('change', () => {
+        const idx = parseInt(blockSelect.value);
+        updateVisualizationForBlock(idx);
+    });
+
     btnNeuralRun.addEventListener('click', () => {
         if (!loadedWeights) {
             alert('Loading neural weights, please wait.');
@@ -1199,257 +1250,296 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const plaintextInput = document.getElementById('neural-plaintext').value;
-        const msgBits = textTo16Bits(plaintextInput);
-
-        // 1. Encode with Hamming(7,4) ECC
-        let encodedBits;
-        if (wasmEngine) {
-            try {
-                encodedBits = wasm_hamming_encode(msgBits);
-            } catch (e) {
-                console.warn('WASM ECC failed, falling back to JS.', e);
-                encodedBits = jsHammingEncode(msgBits);
-            }
-        } else {
-            encodedBits = jsHammingEncode(msgBits);
+        if (!plaintextInput || plaintextInput.length === 0) {
+            alert('평문을 입력해 주세요.');
+            return;
         }
 
-        // 2. Feed into AliceNet (Quantized INT8 Inference)
-        const scaleInAlice = loadedWeights.alice.layers[0].scale_in;
-        const scaleOutAlice = loadedWeights.alice.layers[loadedWeights.alice.layers.length - 1].scale_out;
-        
-        // Quantize Alice Inputs to INT8
-        const aliceInputFloat = [...encodedBits, ...keyBits];
-        const aliceInputInt8 = aliceInputFloat.map(v => {
-            return wasmEngine 
-                ? wasm_quantize(v, scaleInAlice)
-                : jsQuantize(v, scaleInAlice);
-        });
-
-        let cipherInt8;
-        if (wasmEngine) {
-            try {
-                const aliceNet = new WasmIntegerNeuralNet();
-                loadedWeights.alice.layers.forEach(layer => {
-                    const flatWeights = layer.weights_int8.flat();
-                    const outCh = layer.biases_int32.length;
-                    const inCh = flatWeights.length / outCh;
-                    aliceNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
-                });
-                cipherInt8 = aliceNet.forward(aliceInputInt8);
-            } catch (e) {
-                console.warn('WASM Alice INT8 forward failed, falling back to JS.', e);
-                cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
-            }
-        } else {
-            cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
+        // Pad message to blocks of 2 characters (each block is 16 bits)
+        let paddedText = plaintextInput;
+        if (paddedText.length % 2 !== 0) {
+            paddedText += ' '; // Space padding
         }
 
-        // --- PART 3-2: HYPERCHAOTIC SCRAMBLING ---
+        // Split text into 2-character blocks
+        blockPlaintexts = [];
+        for (let i = 0; i < paddedText.length; i += 2) {
+            blockPlaintexts.push(paddedText.slice(i, i + 2));
+        }
+
+        // Clear previous intermediate results
+        blockInputsAlice = [];
+        blockCipherInt8 = [];
+        blockCipherFloats = [];
+        blockDecodedBitsBob = [];
+        blockDecodedInt8Bob = [];
+        blockDecodedBitsEve = [];
+        blockDecodedInt8Eve = [];
+
         const scrambleToggle = document.getElementById('param-hyperchaotic-scrambling-toggle');
         const doScramble = scrambleToggle && scrambleToggle.checked;
-        let h_noise = [];
+        doScrambleGlobal = doScramble;
 
-        if (doScramble) {
-            let sx = 0.1, sy = 0.2, sz = 0.3, sw = 0.4;
-            keyBits.forEach((bit, idx) => {
-                if (idx % 4 === 0) sx += bit * 0.05;
-                else if (idx % 4 === 1) sy += bit * 0.05;
-                else if (idx % 4 === 2) sz += bit * 0.05;
-                else sw += bit * 0.05;
-            });
-
-            if (wasmEngine) {
-                try {
-                    let hc = new WasmHyperchaoticSystem(sx, sy, sz, sw);
-                    h_noise = hc.generate_sequence(cipherInt8.length);
-                } catch (e) {
-                    console.warn('WASM Hyperchaotic failed, falling back to JS.', e);
-                }
-            }
-
-            if (h_noise.length === 0) {
-                let hx = sx, hy = sy, hz = sz, hw = sw;
-                let r = 3.99, e = 0.1;
-                for (let round = 0; round < 50; round++) {
-                    let fx = r * hx * (1 - hx);
-                    let fy = r * hy * (1 - hy);
-                    let fz = r * hz * (1 - hz);
-                    let fw = r * hw * (1 - hw);
-                    hx = (1 - e) * fx + e * fy;
-                    hy = (1 - e) * fy + e * fz;
-                    hz = (1 - e) * fz + e * fw;
-                    hw = (1 - e) * fw + e * fx;
-                }
-                for (let c = 0; c < cipherInt8.length; c++) {
-                    let fx = r * hx * (1 - hx);
-                    let fy = r * hy * (1 - hy);
-                    let fz = r * hz * (1 - hz);
-                    let fw = r * hw * (1 - hw);
-                    hx = (1 - e) * fx + e * fy;
-                    hy = (1 - e) * fy + e * fz;
-                    hz = (1 - e) * fz + e * fw;
-                    hw = (1 - e) * fw + e * fx;
-                    h_noise.push(hx * 2.0 - 1.0);
-                }
-            }
-
-            cipherInt8 = cipherInt8.map((c, idx) => {
-                let h_q = wasmEngine 
-                    ? wasm_quantize(h_noise[idx], scaleOutAlice)
-                    : jsQuantize(h_noise[idx], scaleOutAlice);
-                let sum = c + h_q;
-                if (sum > 127) sum -= 256;
-                if (sum < -128) sum += 256;
-                return sum;
-            });
-        }
-
-        // Dequantize cipher floats for compatibility/display
-        const cipherFloats = cipherInt8.map(v => {
-            return wasmEngine
-                ? wasm_dequantize(v, scaleOutAlice)
-                : jsDequantize(v, scaleOutAlice);
-        });
-
-        // Render Alice Nodes (inputs shown as binary with INT8 values in tooltip)
-        visualizeNodes('neural-alice-nodes', aliceInputFloat, aliceInputInt8);
-
-        // Render Ciphertext INT8 representations
-        const cipherContainer = document.getElementById('neural-ciphertext-floats');
-        cipherContainer.innerHTML = '';
-        cipherInt8.forEach((val, idx) => {
-            const box = document.createElement('div');
-            box.className = 'cipher-node';
-            if (doScramble) {
-                box.classList.add('scrambled');
-                box.style.boxShadow = '0 0 8px rgba(255, 75, 92, 0.6)';
-                box.style.border = '1px solid rgba(255, 75, 92, 0.8)';
-            }
-            box.textContent = val; // Display the raw INT8 quantized values!
-            box.setAttribute('title', `Float value: ${cipherFloats[idx].toFixed(4)}${doScramble ? ' [Scrambled with Hyperchaos]' : ''}`);
-            cipherContainer.appendChild(box);
-        });
-
-        // 3. Bob Decryption (Correct Key - Quantized INT8 Inference)
+        const scaleInAlice = loadedWeights.alice.layers[0].scale_in;
+        const scaleOutAlice = loadedWeights.alice.layers[loadedWeights.alice.layers.length - 1].scale_out;
         const scaleInBob = loadedWeights.bob.layers[0].scale_in;
         const scaleOutBob = loadedWeights.bob.layers[loadedWeights.bob.layers.length - 1].scale_out;
 
-        // Bob input: Quantized Ciphertext + Quantized Key
-        const bobKeyBitsInt8 = keyBits.map(v => {
-            return wasmEngine 
-                ? wasm_quantize(v, scaleInBob)
-                : jsQuantize(v, scaleInBob);
-        });
+        let bobTexts = [];
+        let eveTexts = [];
 
-        let bobCipherInputInt8 = [...cipherInt8];
-        if (doScramble) {
-            // Bob decrypts by first subtracting the identical hyperchaotic sequence
-            bobCipherInputInt8 = bobCipherInputInt8.map((c, idx) => {
-                let h_q = wasmEngine 
-                    ? wasm_quantize(h_noise[idx], scaleOutAlice)
-                    : jsQuantize(h_noise[idx], scaleOutAlice);
-                let diff = c - h_q;
-                if (diff > 127) diff -= 256;
-                if (diff < -128) diff += 256;
-                return diff;
+        // Loop over each block to encrypt and decrypt
+        for (let bIdx = 0; bIdx < blockPlaintexts.length; bIdx++) {
+            const blockText = blockPlaintexts[bIdx];
+            const msgBits = textTo16Bits(blockText);
+
+            // 1. Encode with Hamming(7,4) ECC
+            let encodedBits;
+            if (wasmEngine) {
+                try {
+                    encodedBits = wasm_hamming_encode(msgBits);
+                } catch (e) {
+                    encodedBits = jsHammingEncode(msgBits);
+                }
+            } else {
+                encodedBits = jsHammingEncode(msgBits);
+            }
+
+            // 2. Feed into AliceNet (Quantized INT8 Inference)
+            const aliceInputFloat = [...encodedBits, ...keyBits];
+            const aliceInputInt8 = aliceInputFloat.map(v => {
+                return wasmEngine 
+                    ? wasm_quantize(v, scaleInAlice)
+                    : jsQuantize(v, scaleInAlice);
             });
-        }
-        const bobInputInt8 = [...bobCipherInputInt8, ...bobKeyBitsInt8];
 
-        let bobDecodedInt8;
-        if (wasmEngine) {
-            try {
-                const bobNet = new WasmIntegerNeuralNet();
-                loadedWeights.bob.layers.forEach(layer => {
-                    const flatWeights = layer.weights_int8.flat();
-                    const outCh = layer.biases_int32.length;
-                    const inCh = flatWeights.length / outCh;
-                    bobNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+            let cipherInt8;
+            if (wasmEngine) {
+                try {
+                    const aliceNet = new WasmIntegerNeuralNet();
+                    loadedWeights.alice.layers.forEach(layer => {
+                        const flatWeights = layer.weights_int8.flat();
+                        const outCh = layer.biases_int32.length;
+                        const inCh = flatWeights.length / outCh;
+                        aliceNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+                    });
+                    cipherInt8 = aliceNet.forward(aliceInputInt8);
+                } catch (e) {
+                    cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
+                }
+            } else {
+                cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
+            }
+
+            // --- PART 3-2: HYPERCHAOTIC SCRAMBLING ---
+            let h_noise = [];
+            if (doScramble) {
+                let sx = 0.1, sy = 0.2, sz = 0.3, sw = 0.4;
+                // Add unique block index feedback to ensure different noise for identical blocks (scrambler chaining)
+                sx += bIdx * 0.05;
+                keyBits.forEach((bit, idx) => {
+                    if (idx % 4 === 0) sx += bit * 0.05;
+                    else if (idx % 4 === 1) sy += bit * 0.05;
+                    else if (idx % 4 === 2) sz += bit * 0.05;
+                    else sw += bit * 0.05;
                 });
-                bobDecodedInt8 = bobNet.forward(bobInputInt8);
-            } catch (e) {
-                console.warn('WASM Bob INT8 forward failed, falling back to JS.', e);
+
+                if (wasmEngine) {
+                    try {
+                        let hc = new WasmHyperchaoticSystem(sx, sy, sz, sw);
+                        h_noise = hc.generate_sequence(cipherInt8.length);
+                    } catch (e) {
+                        console.warn('WASM Hyperchaotic failed, falling back to JS.', e);
+                    }
+                }
+
+                if (h_noise.length === 0) {
+                    let hx = sx, hy = sy, hz = sz, hw = sw;
+                    let r = 3.99, e = 0.1;
+                    for (let round = 0; round < 50; round++) {
+                        let fx = r * hx * (1 - hx);
+                        let fy = r * hy * (1 - hy);
+                        let fz = r * hz * (1 - hz);
+                        let fw = r * hw * (1 - hw);
+                        hx = (1 - e) * fx + e * fy;
+                        hy = (1 - e) * fy + e * fz;
+                        hz = (1 - e) * fz + e * fw;
+                        hw = (1 - e) * fw + e * fx;
+                    }
+                    for (let c = 0; c < cipherInt8.length; c++) {
+                        let fx = r * hx * (1 - hx);
+                        let fy = r * hy * (1 - hy);
+                        let fz = r * hz * (1 - hz);
+                        let fw = r * hw * (1 - hw);
+                        hx = (1 - e) * fx + e * fy;
+                        hy = (1 - e) * fy + e * fz;
+                        hz = (1 - e) * fz + e * fw;
+                        hw = (1 - e) * fw + e * fx;
+                        h_noise.push(hx * 2.0 - 1.0);
+                    }
+                }
+
+                cipherInt8 = cipherInt8.map((c, idx) => {
+                    let h_q = wasmEngine 
+                        ? wasm_quantize(h_noise[idx], scaleOutAlice)
+                        : jsQuantize(h_noise[idx], scaleOutAlice);
+                    let sum = c + h_q;
+                    if (sum > 127) sum -= 256;
+                    if (sum < -128) sum += 256;
+                    return sum;
+                });
+            }
+
+            // Dequantize cipher floats for compatibility/display
+            const cipherFloats = cipherInt8.map(v => {
+                return wasmEngine
+                    ? wasm_dequantize(v, scaleOutAlice)
+                    : jsDequantize(v, scaleOutAlice);
+            });
+
+            // Store Alice Intermediate results
+            blockInputsAlice.push({ float: aliceInputFloat, int8: aliceInputInt8 });
+            blockCipherInt8.push(cipherInt8);
+            blockCipherFloats.push(cipherFloats);
+
+            // 3. Bob Decryption (Correct Key - Quantized INT8 Inference)
+            const bobKeyBitsInt8 = keyBits.map(v => {
+                return wasmEngine 
+                    ? wasm_quantize(v, scaleInBob)
+                    : jsQuantize(v, scaleInBob);
+            });
+
+            let bobCipherInputInt8 = [...cipherInt8];
+            if (doScramble) {
+                // Bob decrypts by first subtracting the identical hyperchaotic sequence
+                bobCipherInputInt8 = bobCipherInputInt8.map((c, idx) => {
+                    let h_q = wasmEngine 
+                        ? wasm_quantize(h_noise[idx], scaleOutAlice)
+                        : jsQuantize(h_noise[idx], scaleOutAlice);
+                    let diff = c - h_q;
+                    if (diff > 127) diff -= 256;
+                    if (diff < -128) diff += 256;
+                    return diff;
+                });
+            }
+            const bobInputInt8 = [...bobCipherInputInt8, ...bobKeyBitsInt8];
+
+            let bobDecodedInt8;
+            if (wasmEngine) {
+                try {
+                    const bobNet = new WasmIntegerNeuralNet();
+                    loadedWeights.bob.layers.forEach(layer => {
+                        const flatWeights = layer.weights_int8.flat();
+                        const outCh = layer.biases_int32.length;
+                        const inCh = flatWeights.length / outCh;
+                        bobNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+                    });
+                    bobDecodedInt8 = bobNet.forward(bobInputInt8);
+                } catch (e) {
+                    bobDecodedInt8 = jsIntegerNetForward(bobInputInt8, loadedWeights.bob.layers);
+                }
+            } else {
                 bobDecodedInt8 = jsIntegerNetForward(bobInputInt8, loadedWeights.bob.layers);
             }
-        } else {
-            bobDecodedInt8 = jsIntegerNetForward(bobInputInt8, loadedWeights.bob.layers);
-        }
 
-        // Dequantize Bob output to bits
-        const bobDecodedFloat = bobDecodedInt8.map(v => {
-            return wasmEngine
-                ? wasm_dequantize(v, scaleOutBob)
-                : jsDequantize(v, scaleOutBob);
-        });
-        const bobCodedBits = bobDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
-        visualizeNodes('neural-bob-nodes', bobCodedBits, bobDecodedInt8);
+            // Dequantize Bob output to bits
+            const bobDecodedFloat = bobDecodedInt8.map(v => {
+                return wasmEngine
+                    ? wasm_dequantize(v, scaleOutBob)
+                    : jsDequantize(v, scaleOutBob);
+            });
+            const bobCodedBits = bobDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
 
-        // Bob Decode Hamming(7,4) ECC
-        let bobFinalBits;
-        if (wasmEngine) {
-            try {
-                bobFinalBits = wasm_hamming_decode(bobCodedBits);
-            } catch (e) {
+            // Bob Decode Hamming(7,4) ECC
+            let bobFinalBits;
+            if (wasmEngine) {
+                try {
+                    bobFinalBits = wasm_hamming_decode(bobCodedBits);
+                } catch (e) {
+                    bobFinalBits = jsHammingDecode(bobCodedBits);
+                }
+            } else {
                 bobFinalBits = jsHammingDecode(bobCodedBits);
             }
-        } else {
-            bobFinalBits = jsHammingDecode(bobCodedBits);
-        }
 
-        const bobText = bitsToText(bobFinalBits);
-        document.getElementById('neural-bob-decrypted-text').textContent = `"${bobText}"`;
+            const bobText = bitsToText(bobFinalBits);
+            bobTexts.push(bobText);
 
-        // 4. Eve Decryption (No Key - Zero Key)
-        const zeroKey = new Array(16).fill(0);
-        const eveKeyBitsInt8 = zeroKey.map(v => {
-            return wasmEngine 
-                ? wasm_quantize(v, scaleInBob)
-                : jsQuantize(v, scaleInBob);
-        });
-        const eveInputInt8 = [...cipherInt8, ...eveKeyBitsInt8];
-        let eveDecodedInt8;
+            // Store Bob intermediate results
+            blockDecodedBitsBob.push(bobCodedBits);
+            blockDecodedInt8Bob.push(bobDecodedInt8);
 
-        if (wasmEngine) {
-            try {
-                const eveNet = new WasmIntegerNeuralNet();
-                loadedWeights.bob.layers.forEach(layer => {
-                    const flatWeights = layer.weights_int8.flat();
-                    const outCh = layer.biases_int32.length;
-                    const inCh = flatWeights.length / outCh;
-                    eveNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
-                });
-                eveDecodedInt8 = eveNet.forward(eveInputInt8);
-            } catch (e) {
+            // 4. Eve Decryption (No Key - Zero Key)
+            const zeroKey = new Array(16).fill(0);
+            const eveKeyBitsInt8 = zeroKey.map(v => {
+                return wasmEngine 
+                    ? wasm_quantize(v, scaleInBob)
+                    : jsQuantize(v, scaleInBob);
+            });
+            const eveInputInt8 = [...cipherInt8, ...eveKeyBitsInt8];
+            let eveDecodedInt8;
+
+            if (wasmEngine) {
+                try {
+                    const eveNet = new WasmIntegerNeuralNet();
+                    loadedWeights.bob.layers.forEach(layer => {
+                        const flatWeights = layer.weights_int8.flat();
+                        const outCh = layer.biases_int32.length;
+                        const inCh = flatWeights.length / outCh;
+                        eveNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+                    });
+                    eveDecodedInt8 = eveNet.forward(eveInputInt8);
+                } catch (e) {
+                    eveDecodedInt8 = jsIntegerNetForward(eveInputInt8, loadedWeights.bob.layers);
+                }
+            } else {
                 eveDecodedInt8 = jsIntegerNetForward(eveInputInt8, loadedWeights.bob.layers);
             }
-        } else {
-            eveDecodedInt8 = jsIntegerNetForward(eveInputInt8, loadedWeights.bob.layers);
-        }
 
-        // Dequantize Eve output to bits
-        const eveDecodedFloat = eveDecodedInt8.map(v => {
-            return wasmEngine
-                ? wasm_dequantize(v, scaleOutBob)
-                : jsDequantize(v, scaleOutBob);
-        });
-        const eveCodedBits = eveDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
-        visualizeNodes('neural-eve-nodes', eveCodedBits, eveDecodedInt8);
+            // Dequantize Eve output to bits
+            const eveDecodedFloat = eveDecodedInt8.map(v => {
+                return wasmEngine
+                    ? wasm_dequantize(v, scaleOutBob)
+                    : jsDequantize(v, scaleOutBob);
+            });
+            const eveCodedBits = eveDecodedFloat.map(v => v >= 0.5 ? 1 : 0);
 
-        // Eve Decode Hamming(7,4) ECC
-        let eveFinalBits;
-        if (wasmEngine) {
-            try {
-                eveFinalBits = wasm_hamming_decode(eveCodedBits);
-            } catch (e) {
+            // Eve Decode Hamming(7,4) ECC
+            let eveFinalBits;
+            if (wasmEngine) {
+                try {
+                    eveFinalBits = wasm_hamming_decode(eveCodedBits);
+                } catch (e) {
+                    eveFinalBits = jsHammingDecode(eveCodedBits);
+                }
+            } else {
                 eveFinalBits = jsHammingDecode(eveCodedBits);
             }
-        } else {
-            eveFinalBits = jsHammingDecode(eveCodedBits);
+
+            const eveText = bitsToText(eveFinalBits);
+            eveTexts.push(eveText);
+
+            // Store Eve intermediate results
+            blockDecodedBitsEve.push(eveCodedBits);
+            blockDecodedInt8Eve.push(eveDecodedInt8);
         }
 
-        const eveText = bitsToText(eveFinalBits);
-        document.getElementById('neural-eve-decrypted-text').textContent = `"${eveText}"`;
+        // Render multi-block select dropdown options
+        blockSelect.innerHTML = '';
+        blockPlaintexts.forEach((block, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.textContent = `Block ${idx + 1} ("${block}")`;
+            blockSelect.appendChild(opt);
+        });
+
+        // Set the active selection to first block and run visualization
+        blockSelect.value = 0;
+        updateVisualizationForBlock(0);
+
+        // Update overall decrypted texts
+        document.getElementById('neural-bob-decrypted-text').textContent = `"${bobTexts.join('')}"`;
+        document.getElementById('neural-eve-decrypted-text').textContent = `"${eveTexts.join('')}"`;
     });
 
     // Initial Reset to setup ETPMs
