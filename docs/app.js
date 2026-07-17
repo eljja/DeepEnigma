@@ -1136,11 +1136,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Integer Quantized Dense Layer forward pass in JS
     function jsIntegerDenseForward(input, layer) {
         let out = [];
-        const scaleAccum = layer.scale_in * layer.scale_w;
-        for (let i = 0; i < layer.biases_int32.length; i++) {
-            let acc = layer.biases_int32[i];
+        const weights = layer.weights_int8 || layer.weights;
+        const biases = layer.biases_int32 || layer.biases;
+        const scale_in = layer.scale_in !== undefined ? layer.scale_in : 1.0;
+        const scale_w = layer.scale_w !== undefined ? layer.scale_w : 1.0;
+        const scale_out = layer.scale_out !== undefined ? layer.scale_out : 1.0;
+
+        const scaleAccum = scale_in * scale_w;
+        for (let i = 0; i < biases.length; i++) {
+            let acc = biases[i];
             for (let j = 0; j < input.length; j++) {
-                acc += layer.weights_int8[i][j] * input[j];
+                acc += weights[i][j] * input[j];
             }
             let valFloat = acc * scaleAccum;
             let actFloat;
@@ -1153,7 +1159,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 actFloat = valFloat;
             }
-            out.push(jsQuantize(actFloat, layer.scale_out));
+            out.push(jsQuantize(actFloat, scale_out));
         }
         return out;
     }
@@ -1297,8 +1303,11 @@ document.addEventListener('DOMContentLoaded', () => {
             let encodedBits;
             if (wasmEngine) {
                 try {
-                    encodedBits = wasm_hamming_encode(msgBits);
+                    // wasm_hamming_encode expects Float64Array
+                    const wasmResult = wasm_hamming_encode(new Float64Array(msgBits));
+                    encodedBits = Array.from(wasmResult);
                 } catch (e) {
+                    console.warn('WASM Hamming encode failed, falling back to JS.', e);
                     encodedBits = jsHammingEncode(msgBits);
                 }
             } else {
@@ -1318,13 +1327,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     const aliceNet = new WasmIntegerNeuralNet();
                     loadedWeights.alice.layers.forEach(layer => {
-                        const flatWeights = layer.weights_int8.flat();
-                        const outCh = layer.biases_int32.length;
+                        const weights = layer.weights_int8 || layer.weights;
+                        const biases = layer.biases_int32 || layer.biases;
+                        const flatWeights = weights.flat();
+                        const outCh = biases.length;
                         const inCh = flatWeights.length / outCh;
-                        aliceNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+                        
+                        const scale_in = layer.scale_in !== undefined ? layer.scale_in : 1.0;
+                        const scale_w = layer.scale_w !== undefined ? layer.scale_w : 1.0;
+                        const scale_out = layer.scale_out !== undefined ? layer.scale_out : 1.0;
+
+                        // WasmIntegerNeuralNet.add_layer expects Int8Array and Int32Array
+                        aliceNet.add_layer(
+                            new Int8Array(flatWeights), 
+                            new Int32Array(biases), 
+                            outCh, 
+                            inCh, 
+                            scale_in, 
+                            scale_w, 
+                            scale_out, 
+                            layer.activation
+                        );
                     });
-                    cipherInt8 = aliceNet.forward(aliceInputInt8);
+                    // WasmIntegerNeuralNet.forward expects Int8Array
+                    const wasmCipher = aliceNet.forward(new Int8Array(aliceInputInt8));
+                    cipherInt8 = Array.from(wasmCipher);
                 } catch (e) {
+                    console.warn('WASM Alice INT8 forward failed, falling back to JS.', e);
                     cipherInt8 = jsIntegerNetForward(aliceInputInt8, loadedWeights.alice.layers);
                 }
             } else {
@@ -1429,13 +1458,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     const bobNet = new WasmIntegerNeuralNet();
                     loadedWeights.bob.layers.forEach(layer => {
-                        const flatWeights = layer.weights_int8.flat();
-                        const outCh = layer.biases_int32.length;
+                        const weights = layer.weights_int8 || layer.weights;
+                        const biases = layer.biases_int32 || layer.biases;
+                        const flatWeights = weights.flat();
+                        const outCh = biases.length;
                         const inCh = flatWeights.length / outCh;
-                        bobNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+
+                        const scale_in = layer.scale_in !== undefined ? layer.scale_in : 1.0;
+                        const scale_w = layer.scale_w !== undefined ? layer.scale_w : 1.0;
+                        const scale_out = layer.scale_out !== undefined ? layer.scale_out : 1.0;
+
+                        bobNet.add_layer(
+                            new Int8Array(flatWeights), 
+                            new Int32Array(biases), 
+                            outCh, 
+                            inCh, 
+                            scale_in, 
+                            scale_w, 
+                            scale_out, 
+                            layer.activation
+                        );
                     });
-                    bobDecodedInt8 = bobNet.forward(bobInputInt8);
+                    const wasmDecoded = bobNet.forward(new Int8Array(bobInputInt8));
+                    bobDecodedInt8 = Array.from(wasmDecoded);
                 } catch (e) {
+                    console.warn('WASM Bob INT8 forward failed, falling back to JS.', e);
                     bobDecodedInt8 = jsIntegerNetForward(bobInputInt8, loadedWeights.bob.layers);
                 }
             } else {
@@ -1454,8 +1501,10 @@ document.addEventListener('DOMContentLoaded', () => {
             let bobFinalBits;
             if (wasmEngine) {
                 try {
-                    bobFinalBits = wasm_hamming_decode(bobCodedBits);
+                    const wasmDecodedHamming = wasm_hamming_decode(new Float64Array(bobCodedBits));
+                    bobFinalBits = Array.from(wasmDecodedHamming);
                 } catch (e) {
+                    console.warn('WASM Bob Hamming decode failed, falling back to JS.', e);
                     bobFinalBits = jsHammingDecode(bobCodedBits);
                 }
             } else {
@@ -1478,18 +1527,35 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const eveInputInt8 = [...cipherInt8, ...eveKeyBitsInt8];
             let eveDecodedInt8;
-
             if (wasmEngine) {
                 try {
                     const eveNet = new WasmIntegerNeuralNet();
                     loadedWeights.bob.layers.forEach(layer => {
-                        const flatWeights = layer.weights_int8.flat();
-                        const outCh = layer.biases_int32.length;
+                        const weights = layer.weights_int8 || layer.weights;
+                        const biases = layer.biases_int32 || layer.biases;
+                        const flatWeights = weights.flat();
+                        const outCh = biases.length;
                         const inCh = flatWeights.length / outCh;
-                        eveNet.add_layer(flatWeights, layer.biases_int32, outCh, inCh, layer.scale_in, layer.scale_w, layer.scale_out, layer.activation);
+
+                        const scale_in = layer.scale_in !== undefined ? layer.scale_in : 1.0;
+                        const scale_w = layer.scale_w !== undefined ? layer.scale_w : 1.0;
+                        const scale_out = layer.scale_out !== undefined ? layer.scale_out : 1.0;
+
+                        eveNet.add_layer(
+                            new Int8Array(flatWeights), 
+                            new Int32Array(biases), 
+                            outCh, 
+                            inCh, 
+                            scale_in, 
+                            scale_w, 
+                            scale_out, 
+                            layer.activation
+                        );
                     });
-                    eveDecodedInt8 = eveNet.forward(eveInputInt8);
+                    const wasmDecoded = eveNet.forward(new Int8Array(eveInputInt8));
+                    eveDecodedInt8 = Array.from(wasmDecoded);
                 } catch (e) {
+                    console.warn('WASM Eve INT8 forward failed, falling back to JS.', e);
                     eveDecodedInt8 = jsIntegerNetForward(eveInputInt8, loadedWeights.bob.layers);
                 }
             } else {
@@ -1508,8 +1574,10 @@ document.addEventListener('DOMContentLoaded', () => {
             let eveFinalBits;
             if (wasmEngine) {
                 try {
-                    eveFinalBits = wasm_hamming_decode(eveCodedBits);
+                    const wasmDecodedHamming = wasm_hamming_decode(new Float64Array(eveCodedBits));
+                    eveFinalBits = Array.from(wasmDecodedHamming);
                 } catch (e) {
+                    console.warn('WASM Eve Hamming decode failed, falling back to JS.', e);
                     eveFinalBits = jsHammingDecode(eveCodedBits);
                 }
             } else {
